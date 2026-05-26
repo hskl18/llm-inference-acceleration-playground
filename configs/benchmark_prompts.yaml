@@ -1,0 +1,29 @@
+run:
+  name: prompt-local-sweep
+  output_dir: results/runs/prompt-local-sweep
+  hardware_label: local-dev
+  warmup_requests: 0
+  measured_requests: 4
+  timeout_seconds: 120
+
+endpoint:
+  base_url: mock://local
+  api_key_env: OPENAI_API_KEY
+  backend: mock
+  api_kind: chat
+
+model:
+  name: mock-model
+  dtype: unknown
+  quantization: none
+
+workload:
+  mode: prompts
+  prompts_path: configs/spec_prompts.jsonl
+  output_tokens: [64]
+  concurrency: [1, 4]
+  seed: 42
+
+report:
+  formats: [markdown, json]
+  plots: false

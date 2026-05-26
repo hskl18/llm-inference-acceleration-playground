@@ -1,0 +1,2 @@
+{"prompt": "Explain KV cache and batching in LLM serving.", "expected_keywords": ["kv", "cache", "batching"]}
+{"prompt": "Describe latency and throughput tradeoffs.", "expected_keywords": ["latency", "throughput"]}

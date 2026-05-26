@@ -1,0 +1,1 @@
+"""Lightweight output quality evaluation."""
