@@ -13,3 +13,11 @@ def test_backend_profile_reports_vllm_requirements() -> None:
 
     assert profile["adapter_status"] == "implemented"
     assert profile["required_environment"]
+
+
+def test_backend_profile_reports_sglang_as_openai_compatible() -> None:
+    profile = backend_profile("sglang", base_url="http://localhost:30000/v1")
+
+    assert profile["adapter_status"] == "implemented"
+    assert "SGLang" in profile["required_environment"][0]
+    assert "radix_cache" in profile["capability"]["optimization_features"]

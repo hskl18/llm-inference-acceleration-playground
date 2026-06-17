@@ -30,6 +30,9 @@ Initial implementation slice:
 - packaged example configs exportable through `llm-accel examples write`
 - config-relative fixed-prompt paths for self-contained exported examples
 - proposal implementation audit for maintainers and contributors
+- research-backed optimization roadmap for prefix reuse, backend flags, benchmark fidelity, and claim auditing
+- backend capability metadata for SGLang, TensorRT-LLM, TGI, and common optimization features
+- CI matrix coverage for Python 3.13
 - run validation and comparison reports
 - comparison warnings for low-sample, failed, or incompatible runs
 - ruff lint configuration and CI lint gate

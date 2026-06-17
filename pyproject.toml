@@ -28,9 +28,9 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/hanbintan/llm-inference-acceleration-playground"
-Repository = "https://github.com/hanbintan/llm-inference-acceleration-playground"
-Issues = "https://github.com/hanbintan/llm-inference-acceleration-playground/issues"
+Homepage = "https://github.com/hskl18/llm-inference-acceleration-playground"
+Repository = "https://github.com/hskl18/llm-inference-acceleration-playground"
+Issues = "https://github.com/hskl18/llm-inference-acceleration-playground/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.5"]

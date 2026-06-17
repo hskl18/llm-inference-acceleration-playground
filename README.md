@@ -231,6 +231,7 @@ The default test suite does not require a GPU.
 
 See [docs/release.md](docs/release.md) for release and benchmark-claim checks.
 See [docs/proposal_implementation_audit.md](docs/proposal_implementation_audit.md) for the current proposal-to-implementation coverage map.
+See [docs/research_optimization_plan.md](docs/research_optimization_plan.md) for research-backed optimization directions.
 See [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md) for contribution, conduct, and security guidance.
 
 ## Project Direction

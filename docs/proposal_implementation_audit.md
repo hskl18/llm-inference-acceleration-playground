@@ -15,8 +15,10 @@ This document maps the proposal roadmap to the current implementation. It is mea
 | Quantization comparison | Mode support labeling, unsupported-mode reporting, per-mode benchmark metadata, fixed-prompt sanity checks | `test_quantization_comparison.py`, `test_quantization_sanity.py` |
 | Speculative decoding study | Deterministic toy accounting, acceptance curves, baseline comparison artifacts, method notes | `test_speculative_analysis.py` |
 | vLLM workflow | Server command helper, readiness validation, backend profiles, hardware benchmark runbook with latency, throughput, sweep, task-eval, and validation steps | `test_vllm.py`, `test_vllm_validation.py`, `test_vllm_plan.py` |
+| Backend expansion | Capability/profile metadata for vLLM, SGLang, TensorRT-LLM, TGI, and generic OpenAI-compatible endpoints | `test_capabilities.py`, `test_backend_profiles.py` |
 | Installed-package usability | Packaged example configs and prompt/task files exportable with `llm-accel examples write` | `test_cli_examples_write_creates_runnable_configs`, `scripts/smoke.py` |
 | Open source hygiene | README, docs, changelog, release gate, issue-label guidance, no committed benchmark claims | `docs/release.md`, `CONTRIBUTING.md` |
+| Research-backed optimization plan | Prioritized plan for prefix reuse workloads, optimization-profile metadata, high-concurrency fidelity, quality guardrails, and claim auditing | `docs/research_optimization_plan.md` |
 
 ## Product Guarantees
 
