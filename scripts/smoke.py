@@ -12,6 +12,7 @@ LATENCY_OUT = ROOT / "results" / "runs" / "smoke-local"
 THROUGHPUT_OUT = ROOT / "results" / "runs" / "smoke-throughput"
 SWEEP_OUT = ROOT / "results" / "runs" / "smoke-sweep"
 PROMPT_SWEEP_OUT = ROOT / "results" / "runs" / "smoke-prompt-sweep"
+PREFIX_SWEEP_OUT = ROOT / "results" / "runs" / "smoke-prefix-sweep"
 COMPARISON_OUT = ROOT / "results" / "runs" / "smoke-comparison"
 EVAL_OUT = ROOT / "results" / "runs" / "smoke-eval"
 TASK_OUT = ROOT / "results" / "runs" / "smoke-task"
@@ -41,6 +42,7 @@ def main() -> int:
         THROUGHPUT_OUT,
         SWEEP_OUT,
         PROMPT_SWEEP_OUT,
+        PREFIX_SWEEP_OUT,
         COMPARISON_OUT,
         EVAL_OUT,
         TASK_OUT,
@@ -157,6 +159,23 @@ def main() -> int:
     )
     run([sys.executable, "-m", "llm_accel.cli", "report", "validate", "--run-dir", str(PROMPT_SWEEP_OUT)])
     require_file(PROMPT_SWEEP_OUT / "c1-prompts-out64" / "summary.json")
+    run(
+        [
+            sys.executable,
+            "-m",
+            "llm_accel.cli",
+            "bench",
+            "sweep",
+            "--config",
+            "configs/benchmark_prefix_cache.yaml",
+            "--output-dir",
+            str(PREFIX_SWEEP_OUT),
+        ]
+    )
+    run([sys.executable, "-m", "llm_accel.cli", "report", "validate", "--run-dir", str(PREFIX_SWEEP_OUT)])
+    prefix_summary = json.loads((PREFIX_SWEEP_OUT / "c1-prompts-out64" / "summary.json").read_text(encoding="utf-8"))
+    if prefix_summary["metadata"]["shared_prefix_tokens_estimate"] <= 0:
+        raise SystemExit("prefix-cache smoke benchmark did not record shared prefix metadata")
     run(
         [
             sys.executable,

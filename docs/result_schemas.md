@@ -77,6 +77,8 @@ The `metadata.api_kind` field records whether the run used an OpenAI-compatible 
 
 Fixed-prompt benchmark runs add `metadata.workload_mode`, `metadata.prompt_count`, and `metadata.workload_fingerprint`. The fingerprint is a short hash of the prompt set used for comparison safety; prompt text is not stored in the metadata.
 
+Prefix-reuse prompt sets also record `metadata.shared_prefix_tokens_estimate` and `metadata.shared_prefix_fingerprint`. These fields help identify workloads designed for prefix-cache benchmarking without writing shared prompt text to artifacts.
+
 Memory telemetry uses `nvidia-smi` when available. If no NVIDIA GPU telemetry is available, the memory block remains present with `available: false`.
 
 The `warnings` list records unsupported or missing measurements for that run, such as mock-backend limitations, unavailable backend version, unavailable GPU memory telemetry, non-streaming TTFT limitations, or failed requests.

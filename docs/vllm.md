@@ -9,7 +9,9 @@ llm-accel vllm command \
   --model meta-llama/Llama-3.2-1B-Instruct \
   --host 0.0.0.0 \
   --port 8000 \
-  --dtype auto
+  --dtype auto \
+  --enable-prefix-caching \
+  --enable-chunked-prefill
 ```
 
 Then run a benchmark against the OpenAI-compatible endpoint:
@@ -24,6 +26,19 @@ llm-accel bench latency \
 The helper prints commands only. It does not automatically start a long-running server process.
 
 The endpoint client supports OpenAI-compatible streaming server-sent events and non-streaming JSON responses. Streaming mode records TTFT from the first content-bearing event.
+
+## Optimization Flags
+
+`vllm command`, `vllm validate`, and `vllm plan` accept the same startup-optimization flags:
+
+- `--enable-prefix-caching`
+- `--enable-chunked-prefill`
+- `--max-num-batched-tokens`
+- `--max-num-seqs`
+- `--speculative-model`
+- `--num-speculative-tokens`
+
+These flags are recorded in validation and plan artifacts through the generated startup command. They do not create a benchmark claim by themselves; compare runs only after the generated benchmark directories pass validation and the startup command is included with the results.
 
 ## Readiness Validation
 

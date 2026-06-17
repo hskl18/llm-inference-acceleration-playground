@@ -32,6 +32,8 @@ Initial implementation slice:
 - proposal implementation audit for maintainers and contributors
 - research-backed optimization roadmap for prefix reuse, backend flags, benchmark fidelity, and claim auditing
 - backend capability metadata for SGLang, TensorRT-LLM, TGI, and common optimization features
+- prefix-cache benchmark config and shared-prefix metadata for fixed-prompt workloads
+- vLLM startup optimization flags for prefix caching, chunked prefill, batching limits, and speculative decoding
 - CI matrix coverage for Python 3.13
 - run validation and comparison reports
 - comparison warnings for low-sample, failed, or incompatible runs

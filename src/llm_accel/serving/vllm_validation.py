@@ -22,6 +22,12 @@ def validate_vllm_environment(
     quantization: str | None = None,
     max_model_len: int | None = None,
     gpu_memory_utilization: float | None = None,
+    enable_prefix_caching: bool = False,
+    enable_chunked_prefill: bool = False,
+    max_num_batched_tokens: int | None = None,
+    max_num_seqs: int | None = None,
+    speculative_model: str | None = None,
+    num_speculative_tokens: int | None = None,
     timeout_seconds: float = 5.0,
     smoke: bool = False,
 ) -> dict[str, object]:
@@ -33,6 +39,12 @@ def validate_vllm_environment(
         quantization=quantization,
         max_model_len=max_model_len,
         gpu_memory_utilization=gpu_memory_utilization,
+        enable_prefix_caching=enable_prefix_caching,
+        enable_chunked_prefill=enable_chunked_prefill,
+        max_num_batched_tokens=max_num_batched_tokens,
+        max_num_seqs=max_num_seqs,
+        speculative_model=speculative_model,
+        num_speculative_tokens=num_speculative_tokens,
     )
     import_available = importlib.util.find_spec("vllm") is not None
     gpu_memory = sample_gpu_memory().to_dict()

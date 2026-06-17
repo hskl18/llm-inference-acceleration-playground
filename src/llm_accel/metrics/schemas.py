@@ -50,6 +50,8 @@ class RunMetadata:
     workload_mode: str = "synthetic"
     prompt_count: int | None = None
     workload_fingerprint: str | None = None
+    shared_prefix_tokens_estimate: int | None = None
+    shared_prefix_fingerprint: str | None = None
     schema_version: str = SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:

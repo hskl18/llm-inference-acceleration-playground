@@ -33,6 +33,8 @@ The default benchmark workload is synthetic and controlled by `--input-tokens`, 
 
 Prompt text is sent to the configured endpoint but is not written into result metadata. Fixed-prompt benchmark metadata records `workload_mode`, `prompt_count`, and a short prompt-set fingerprint so comparisons can detect mismatched prompt sets without exposing prompt contents.
 
+For prefix-reuse workloads, metadata also records an estimated shared-prefix token count and a shared-prefix fingerprint. Use `configs/benchmark_prefix_cache.yaml` as a small workflow check for prefix-cache experiments before moving to a real long-document workload.
+
 ## Run Directories
 
 When `--output-dir` is omitted, single benchmark commands write to a timestamped directory under `results/runs/`. Explicit output directories are preserved exactly so scripted experiments can choose stable paths.

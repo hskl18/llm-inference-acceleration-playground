@@ -182,23 +182,29 @@ def test_cli_examples_write_creates_runnable_configs(tmp_path: Path, capsys, mon
     examples_dir = tmp_path / "examples"
     output_dir = tmp_path / "example-sweep"
     prompt_output_dir = tmp_path / "example-prompt-sweep"
+    prefix_output_dir = tmp_path / "example-prefix-sweep"
 
     assert main(["examples", "list"]) == 0
     listed = json.loads(capsys.readouterr().out)
     assert "benchmark_small.yaml" in listed["examples"]
     assert "spec_prompts.jsonl" in listed["examples"]
+    assert "benchmark_prefix_cache.yaml" in listed["examples"]
 
     assert main(["examples", "write", "--output-dir", str(examples_dir)]) == 0
     written = json.loads(capsys.readouterr().out)
     assert str(examples_dir / "benchmark_prompts.yaml") in written["files"]
     assert (examples_dir / "benchmark_small.yaml").exists()
     assert (examples_dir / "spec_prompts.jsonl").exists()
+    assert (examples_dir / "prefix_cache_prompts.jsonl").exists()
 
     monkeypatch.chdir(tmp_path)
     assert main(["bench", "sweep", "--config", str(examples_dir / "benchmark_small.yaml"), "--output-dir", str(output_dir)]) == 0
     assert (output_dir / "aggregate_summary.json").exists()
     assert main(["bench", "sweep", "--config", str(examples_dir / "benchmark_prompts.yaml"), "--output-dir", str(prompt_output_dir)]) == 0
     assert (prompt_output_dir / "c1-prompts-out64" / "summary.json").exists()
+    assert main(["bench", "sweep", "--config", str(examples_dir / "benchmark_prefix_cache.yaml"), "--output-dir", str(prefix_output_dir)]) == 0
+    prefix_summary = json.loads((prefix_output_dir / "c1-prompts-out64" / "summary.json").read_text(encoding="utf-8"))
+    assert prefix_summary["metadata"]["shared_prefix_tokens_estimate"] > 0
     assert main(["examples", "write", "--output-dir", str(examples_dir)]) == 2
     assert "pass --overwrite" in capsys.readouterr().err
 
@@ -231,11 +237,16 @@ def test_cli_latency_benchmark_accepts_fixed_prompt_file(tmp_path: Path) -> None
     summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
     resolved = json.loads((output_dir / "resolved_config.json").read_text(encoding="utf-8"))
     rows = list(csv.DictReader((output_dir / "raw_requests.csv").open(encoding="utf-8")))
+    summary_md = (output_dir / "summary.md").read_text(encoding="utf-8")
     assert summary["metadata"]["workload_mode"] == "fixed_prompts"
     assert summary["metadata"]["prompt_count"] == 2
     assert summary["metadata"]["workload_fingerprint"]
+    assert summary["metadata"]["shared_prefix_tokens_estimate"] == 0
+    assert summary["metadata"]["shared_prefix_fingerprint"] is None
     assert resolved["workload_mode"] == "fixed_prompts"
     assert resolved["prompt_count"] == 2
+    assert resolved["shared_prefix_tokens_estimate"] == 0
+    assert "Shared prefix tokens estimate" in summary_md
     assert "short prompt" not in (output_dir / "resolved_config.json").read_text(encoding="utf-8")
     assert [row["input_tokens"] for row in rows] == ["2", "6", "2"]
 

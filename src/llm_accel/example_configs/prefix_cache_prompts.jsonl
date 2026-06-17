@@ -1,0 +1,3 @@
+{"prompt": "You are analyzing the same long product manual section about LLM serving performance. The shared context explains batching, KV cache reuse, request scheduling, and GPU memory pressure. Question: What changes TTFT most?"}
+{"prompt": "You are analyzing the same long product manual section about LLM serving performance. The shared context explains batching, KV cache reuse, request scheduling, and GPU memory pressure. Question: What changes TPOT most?"}
+{"prompt": "You are analyzing the same long product manual section about LLM serving performance. The shared context explains batching, KV cache reuse, request scheduling, and GPU memory pressure. Question: When does prefix reuse help?"}

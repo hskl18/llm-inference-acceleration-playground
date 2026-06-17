@@ -16,12 +16,13 @@ Current coverage:
 
 - Fixed-prompt benchmark files exist.
 - Prompt-set fingerprints prevent invalid comparisons across different prompt files.
+- `configs/benchmark_prefix_cache.yaml` and `configs/prefix_cache_prompts.jsonl` provide a runnable prefix-reuse smoke workload.
+- Fixed-prompt benchmark metadata records `shared_prefix_tokens_estimate` and `shared_prefix_fingerprint` without storing prompt text.
 
 Next implementation:
 
-- Add a dedicated prefix-reuse benchmark config and prompt fixture.
-- Record a `shared_prefix_fingerprint` and estimated shared-prefix token count for fixed-prompt workloads.
 - Add report text that separates prefill-heavy prefix-reuse observations from decode-heavy throughput results.
+- Add larger long-document fixtures for hardware-backed APC/Radix cache validation.
 
 References:
 
@@ -40,10 +41,10 @@ Current coverage:
 
 - `llm-accel vllm command` generates a basic vLLM startup command.
 - `backend list/profile` now includes common OpenAI-compatible serving engines and optimization metadata.
+- vLLM command, validation, and plan artifacts support prefix caching, chunked prefill, batching limits, and speculative decoding startup flags.
 
 Next implementation:
 
-- Add vLLM command flags for prefix caching, chunked prefill, max batched tokens, max concurrent sequences, and speculative decoding parameters.
 - Add a backend-agnostic `optimization_profile` metadata field to benchmark summaries.
 - Add comparison checks so runs with different optimization profiles are not ranked as equivalent.
 

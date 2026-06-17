@@ -16,7 +16,13 @@ from llm_accel.reports.markdown import write_summary_markdown
 from llm_accel.reports.plots import write_latency_svg
 from llm_accel.serving.openai_client import OpenAICompatibleClient
 from llm_accel.serving.versions import detect_backend_version
-from llm_accel.workloads.prompts import estimate_prompt_tokens, fixed_prompt_batch, prompt_fingerprint
+from llm_accel.workloads.prompts import (
+    estimate_prompt_tokens,
+    fixed_prompt_batch,
+    prompt_fingerprint,
+    shared_prefix_fingerprint,
+    shared_prefix_tokens,
+)
 from llm_accel.workloads.synthetic import prompt_batch
 
 
@@ -60,6 +66,8 @@ def run_latency_benchmark(
     workload_mode = "fixed_prompts" if prompt_texts is not None else "synthetic"
     workload_fingerprint = prompt_fingerprint(prompt_texts) if prompt_texts is not None else None
     prompt_count = len(prompt_texts) if prompt_texts is not None else None
+    shared_tokens = shared_prefix_tokens(prompt_texts) if prompt_texts is not None else None
+    shared_fingerprint = shared_prefix_fingerprint(prompt_texts) if prompt_texts is not None else None
 
     if warmup_count:
         warmup_prompts = fixed_prompt_batch(prompt_texts, warmup_count) if prompt_texts is not None else prompt_batch(warmup_count, input_tokens, seed)
@@ -143,6 +151,8 @@ def run_latency_benchmark(
         "workload_mode": workload_mode,
         "prompt_count": prompt_count,
         "workload_fingerprint": workload_fingerprint,
+        "shared_prefix_tokens_estimate": shared_tokens,
+        "shared_prefix_fingerprint": shared_fingerprint,
         "warmup_count": warmup_count,
         "timeout_seconds": timeout_seconds,
         "dtype": dtype,
@@ -183,6 +193,8 @@ def run_latency_benchmark(
         workload_mode=workload_mode,
         prompt_count=prompt_count,
         workload_fingerprint=workload_fingerprint,
+        shared_prefix_tokens_estimate=shared_tokens,
+        shared_prefix_fingerprint=shared_fingerprint,
     )
     metrics = summarize_requests(records, elapsed_seconds=measured_elapsed_seconds)
     memory = summarize_memory(memory_before, memory_after)

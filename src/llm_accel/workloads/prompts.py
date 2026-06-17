@@ -44,3 +44,27 @@ def prompt_fingerprint(prompts: list[str]) -> str:
         digest.update(prompt.encode("utf-8"))
         digest.update(b"\0")
     return digest.hexdigest()[:16]
+
+
+def shared_prefix_tokens(prompts: list[str]) -> int:
+    if not prompts:
+        raise ValueError("prompts must not be empty")
+    tokenized = [prompt.split() for prompt in prompts]
+    if len(tokenized) < 2:
+        return len(tokenized[0])
+
+    shared = 0
+    for tokens in zip(*tokenized):
+        if len(set(tokens)) != 1:
+            break
+        shared += 1
+    return shared
+
+
+def shared_prefix_fingerprint(prompts: list[str]) -> str | None:
+    shared_tokens = shared_prefix_tokens(prompts)
+    if shared_tokens <= 0:
+        return None
+    prefix = " ".join(prompts[0].split()[:shared_tokens])
+    digest = hashlib.sha256(prefix.encode("utf-8")).hexdigest()
+    return digest[:16]

@@ -139,6 +139,7 @@ def build_parser() -> argparse.ArgumentParser:
     vllm_command.add_argument("--quantization")
     vllm_command.add_argument("--max-model-len", type=int)
     vllm_command.add_argument("--gpu-memory-utilization", type=float)
+    _add_vllm_optimization_args(vllm_command)
     vllm_command.add_argument("--json", action="store_true")
     vllm_command.set_defaults(func=cmd_vllm_command)
     vllm_validate = vllm_sub.add_parser("validate", help="Validate local readiness for vLLM benchmarking")
@@ -150,6 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     vllm_validate.add_argument("--quantization")
     vllm_validate.add_argument("--max-model-len", type=int)
     vllm_validate.add_argument("--gpu-memory-utilization", type=float)
+    _add_vllm_optimization_args(vllm_validate)
     vllm_validate.add_argument("--timeout-seconds", type=float, default=5.0)
     vllm_validate.add_argument("--smoke", action="store_true")
     vllm_validate.add_argument("--output-dir", default="results/runs/vllm-validation")
@@ -164,6 +166,7 @@ def build_parser() -> argparse.ArgumentParser:
     vllm_plan.add_argument("--quantization")
     vllm_plan.add_argument("--max-model-len", type=int)
     vllm_plan.add_argument("--gpu-memory-utilization", type=float)
+    _add_vllm_optimization_args(vllm_plan)
     vllm_plan.add_argument("--output-dir", default="results/runs/vllm-plan")
     vllm_plan.set_defaults(func=cmd_vllm_plan)
 
@@ -216,6 +219,15 @@ def build_parser() -> argparse.ArgumentParser:
     spec_run.set_defaults(func=cmd_speculative_run)
 
     return parser
+
+
+def _add_vllm_optimization_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--enable-prefix-caching", action="store_true")
+    parser.add_argument("--enable-chunked-prefill", action="store_true")
+    parser.add_argument("--max-num-batched-tokens", type=int)
+    parser.add_argument("--max-num-seqs", type=int)
+    parser.add_argument("--speculative-model")
+    parser.add_argument("--num-speculative-tokens", type=int)
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
@@ -405,6 +417,12 @@ def cmd_vllm_command(args: argparse.Namespace) -> int:
         quantization=args.quantization,
         max_model_len=args.max_model_len,
         gpu_memory_utilization=args.gpu_memory_utilization,
+        enable_prefix_caching=args.enable_prefix_caching,
+        enable_chunked_prefill=args.enable_chunked_prefill,
+        max_num_batched_tokens=args.max_num_batched_tokens,
+        max_num_seqs=args.max_num_seqs,
+        speculative_model=args.speculative_model,
+        num_speculative_tokens=args.num_speculative_tokens,
     )
     if args.json:
         print(json.dumps(command.to_dict(), indent=2, sort_keys=True))
@@ -424,6 +442,12 @@ def cmd_vllm_validate(args: argparse.Namespace) -> int:
         quantization=args.quantization,
         max_model_len=args.max_model_len,
         gpu_memory_utilization=args.gpu_memory_utilization,
+        enable_prefix_caching=args.enable_prefix_caching,
+        enable_chunked_prefill=args.enable_chunked_prefill,
+        max_num_batched_tokens=args.max_num_batched_tokens,
+        max_num_seqs=args.max_num_seqs,
+        speculative_model=args.speculative_model,
+        num_speculative_tokens=args.num_speculative_tokens,
         timeout_seconds=args.timeout_seconds,
         smoke=args.smoke,
     )
@@ -453,6 +477,12 @@ def cmd_vllm_plan(args: argparse.Namespace) -> int:
         quantization=args.quantization,
         max_model_len=args.max_model_len,
         gpu_memory_utilization=args.gpu_memory_utilization,
+        enable_prefix_caching=args.enable_prefix_caching,
+        enable_chunked_prefill=args.enable_chunked_prefill,
+        max_num_batched_tokens=args.max_num_batched_tokens,
+        max_num_seqs=args.max_num_seqs,
+        speculative_model=args.speculative_model,
+        num_speculative_tokens=args.num_speculative_tokens,
     )
     print(json.dumps({"output_dir": args.output_dir, "steps": len(plan["steps"])}, indent=2, sort_keys=True))
     return 0

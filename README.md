@@ -97,6 +97,7 @@ Run a config-defined sweep:
 ```bash
 llm-accel bench sweep --config configs/benchmark_small.yaml
 llm-accel bench sweep --config configs/benchmark_prompts.yaml
+llm-accel bench sweep --config configs/benchmark_prefix_cache.yaml
 ```
 
 Run a throughput-focused benchmark:
@@ -183,7 +184,9 @@ Generate a vLLM OpenAI-compatible server command:
 llm-accel vllm command \
   --model meta-llama/Llama-3.2-1B-Instruct \
   --dtype auto \
-  --port 8000
+  --port 8000 \
+  --enable-prefix-caching \
+  --enable-chunked-prefill
 ```
 
 Validate vLLM benchmark readiness:
