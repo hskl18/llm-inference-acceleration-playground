@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
+
+
+VLLM_DTYPES = {"auto", "bfloat16", "float", "float16", "float32", "half"}
+DTYPE_ALIASES = {"bf16": "bfloat16", "fp16": "float16", "fp32": "float32"}
 
 
 @dataclass(frozen=True)
@@ -9,6 +14,7 @@ class VllmServerCommand:
     host: str
     port: int
     dtype: str
+    revision: str | None = None
     quantization: str | None = None
     max_model_len: int | None = None
     gpu_memory_utilization: float | None = None
@@ -35,6 +41,8 @@ class VllmServerCommand:
         ]
         if self.quantization and self.quantization != "none":
             args.extend(["--quantization", self.quantization])
+        if self.revision:
+            args.extend(["--revision", self.revision])
         if self.max_model_len:
             args.extend(["--max-model-len", str(self.max_model_len)])
         if self.gpu_memory_utilization:
@@ -69,6 +77,7 @@ def build_vllm_command(
     host: str = "0.0.0.0",
     port: int = 8000,
     dtype: str = "auto",
+    revision: str | None = None,
     quantization: str | None = None,
     max_model_len: int | None = None,
     gpu_memory_utilization: float | None = None,
@@ -93,11 +102,15 @@ def build_vllm_command(
         raise ValueError("num_speculative_tokens must be positive")
     if num_speculative_tokens is not None and not speculative_model:
         raise ValueError("speculative_model is required when num_speculative_tokens is provided")
+    if revision is not None:
+        require_immutable_revision(revision)
+    normalized_dtype = normalize_vllm_dtype(dtype)
     return VllmServerCommand(
         model=model,
         host=host,
         port=port,
-        dtype=dtype,
+        dtype=normalized_dtype,
+        revision=revision,
         quantization=quantization,
         max_model_len=max_model_len,
         gpu_memory_utilization=gpu_memory_utilization,
@@ -108,6 +121,39 @@ def build_vllm_command(
         speculative_model=speculative_model,
         num_speculative_tokens=num_speculative_tokens,
     )
+
+
+def normalize_vllm_dtype(dtype: str) -> str:
+    normalized = DTYPE_ALIASES.get(dtype.lower(), dtype.lower())
+    if normalized not in VLLM_DTYPES:
+        allowed = ", ".join(sorted(VLLM_DTYPES))
+        raise ValueError(f"unsupported vLLM dtype {dtype!r}; expected one of {allowed}")
+    return normalized
+
+
+def require_immutable_revision(revision: str) -> str:
+    if not re.fullmatch(r"[0-9a-f]{40,64}", revision):
+        raise ValueError("revision must be a full 40 to 64 character lowercase hexadecimal identifier")
+    return revision
+
+
+def optimization_profile_name(
+    *,
+    enable_prefix_caching: bool,
+    enable_chunked_prefill: bool,
+    speculative_model: str | None,
+    quantization: str | None,
+) -> str:
+    features = []
+    if enable_prefix_caching:
+        features.append("prefix-cache")
+    if enable_chunked_prefill:
+        features.append("chunked-prefill")
+    if speculative_model:
+        features.append("speculative")
+    if quantization and quantization != "none":
+        features.append(f"quantized-{quantization}")
+    return "+".join(features) if features else "baseline"
 
 
 def _shell_quote(value: str) -> str:

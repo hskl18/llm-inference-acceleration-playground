@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime, timezone
@@ -45,6 +47,10 @@ def run_latency_benchmark(
     hardware_label: str = "local",
     api_kind: str = "chat",
     prompt_texts: list[str] | None = None,
+    model_revision: str | None = None,
+    optimization_profile: str = "baseline",
+    server_command_sha256: str | None = None,
+    server_command_file: str | Path | None = None,
 ) -> dict[str, object]:
     if concurrency <= 0:
         raise ValueError("concurrency must be positive")
@@ -55,6 +61,16 @@ def run_latency_benchmark(
 
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    if server_command_file is not None:
+        source_command = Path(server_command_file).expanduser().resolve()
+        command_bytes = source_command.read_bytes()
+        computed_sha256 = hashlib.sha256(command_bytes).hexdigest()
+        if server_command_sha256 is not None and computed_sha256 != server_command_sha256:
+            raise ValueError("server command file does not match server_command_sha256")
+        server_command_sha256 = computed_sha256
+        destination = (out_dir / "server_command.txt").resolve()
+        if source_command != destination:
+            shutil.copyfile(source_command, destination)
     client = OpenAICompatibleClient(
         base_url=base_url,
         model=model,
@@ -83,8 +99,10 @@ def run_latency_benchmark(
     measured_started = time.perf_counter()
 
     def run_one(index: int, prompt: str) -> RequestMetrics:
+        started_offset_ms = (time.perf_counter() - measured_started) * 1000
         try:
             result = client.complete(prompt, output_tokens, index, stream=stream)
+            completed_offset_ms = (time.perf_counter() - measured_started) * 1000
             return RequestMetrics(
                 request_id=f"req-{index + 1:06d}",
                 model=model,
@@ -97,8 +115,11 @@ def run_latency_benchmark(
                 total_latency_ms=result.total_latency_ms,
                 completed=True,
                 error=None,
+                started_offset_ms=started_offset_ms,
+                completed_offset_ms=completed_offset_ms,
             )
         except Exception as exc:
+            completed_offset_ms = (time.perf_counter() - measured_started) * 1000
             return RequestMetrics(
                 request_id=f"req-{index + 1:06d}",
                 model=model,
@@ -111,6 +132,8 @@ def run_latency_benchmark(
                 total_latency_ms=0.0,
                 completed=False,
                 error=str(exc),
+                started_offset_ms=started_offset_ms,
+                completed_offset_ms=completed_offset_ms,
             )
 
     executor = ThreadPoolExecutor(max_workers=concurrency)
@@ -134,12 +157,14 @@ def run_latency_benchmark(
                 total_latency_ms=timeout_seconds * 1000,
                 completed=False,
                 error=f"request timed out after {timeout_seconds} seconds",
+                started_offset_ms=0.0,
+                completed_offset_ms=(time.perf_counter() - measured_started) * 1000,
             )
         )
     executor.shutdown(wait=False, cancel_futures=True)
 
-    measured_elapsed_seconds = time.perf_counter() - measured_started
     records.sort(key=lambda record: record.request_id)
+    measured_elapsed_seconds = measured_span_seconds(records)
     memory_after = sample_gpu_memory()
     resolved_config = {
         "base_url": base_url if base_url.startswith(("mock://", "http://localhost", "http://127.0.0.1")) else "redacted",
@@ -163,6 +188,9 @@ def run_latency_benchmark(
         "seed": seed,
         "stream": stream,
         "hardware_label": hardware_label,
+        "model_revision": model_revision,
+        "optimization_profile": optimization_profile,
+        "server_command_sha256": server_command_sha256,
     }
     environment = collect_environment_metadata(
         cwd=Path.cwd(),
@@ -195,6 +223,18 @@ def run_latency_benchmark(
         workload_fingerprint=workload_fingerprint,
         shared_prefix_tokens_estimate=shared_tokens,
         shared_prefix_fingerprint=shared_fingerprint,
+        model_revision=model_revision,
+        optimization_profile=optimization_profile,
+        gpu_driver_version=environment["gpu_driver_version"] if isinstance(environment["gpu_driver_version"], str) else None,
+        cuda_version=environment["cuda_version"] if isinstance(environment["cuda_version"], str) else None,
+        cuda_driver_api_version=(
+            environment["cuda_driver_api_version"]
+            if isinstance(environment["cuda_driver_api_version"], str)
+            else None
+        ),
+        torch_version=environment["torch_version"] if isinstance(environment["torch_version"], str) else None,
+        server_command_sha256=server_command_sha256,
+        stream=stream,
     )
     metrics = summarize_requests(records, elapsed_seconds=measured_elapsed_seconds)
     memory = summarize_memory(memory_before, memory_after)
@@ -219,21 +259,32 @@ def run_latency_benchmark(
     write_json(out_dir / "summary.json", summary)
     write_summary_markdown(out_dir / "summary.md", summary)
     write_latency_svg(out_dir / "plots" / "latency.svg", records)
+    artifacts = [
+        "manifest.json",
+        "resolved_config.json",
+        "raw_requests.jsonl",
+        "raw_requests.csv",
+        "run_metadata.json",
+        "summary.json",
+        "summary.md",
+        "plots/latency.svg",
+    ]
+    if (out_dir / "server_command.txt").exists():
+        artifacts.append("server_command.txt")
     write_run_manifest(
         out_dir,
         run_type="latency_benchmark",
-        artifacts=[
-            "manifest.json",
-            "resolved_config.json",
-            "raw_requests.jsonl",
-            "raw_requests.csv",
-            "run_metadata.json",
-            "summary.json",
-            "summary.md",
-            "plots/latency.svg",
-        ],
+        artifacts=artifacts,
     )
     return summary
+
+
+def measured_span_seconds(records: list[RequestMetrics]) -> float:
+    if not records:
+        return 0.0
+    started = min(record.started_offset_ms for record in records)
+    completed = max(record.completed_offset_ms for record in records)
+    return max(completed - started, 0.0) / 1000
 
 
 def _build_run_warnings(

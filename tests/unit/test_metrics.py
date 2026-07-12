@@ -33,6 +33,8 @@ def test_summarize_requests_counts_failures() -> None:
     assert summary["failed_count"] == 2
     assert summary["timeout_count"] == 1
     assert summary["error_rate"] == 2 / 3
+    assert summary["ttft_ms"]["p99"] == 1.0
+    assert summary["tpot_ms"]["p99"] == 2.0
 
 
 def test_summarize_requests_uses_measured_elapsed_seconds() -> None:

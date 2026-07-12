@@ -9,3 +9,7 @@ def test_collect_environment_metadata_includes_reproducibility_fields() -> None:
     assert metadata["hardware_label"] == "ci-smoke"
     assert "git_commit" in metadata
     assert "gpu_name" in metadata
+    assert "gpu_driver_version" in metadata
+    assert "cuda_version" in metadata
+    assert "cuda_driver_api_version" in metadata
+    assert "torch_version" in metadata

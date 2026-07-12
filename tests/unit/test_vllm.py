@@ -1,11 +1,15 @@
 from llm_accel.serving.vllm import build_vllm_command
 
 
+REVISION = "a" * 40
+
+
 def test_build_vllm_command_includes_optional_flags() -> None:
     command = build_vllm_command(
         model="meta-llama/example",
         port=8001,
         dtype="fp16",
+        revision=REVISION,
         quantization="awq",
         max_model_len=4096,
         gpu_memory_utilization=0.9,
@@ -21,6 +25,8 @@ def test_build_vllm_command_includes_optional_flags() -> None:
 
     assert argv[:3] == ["python", "-m", "vllm.entrypoints.openai.api_server"]
     assert "--quantization" in argv
+    assert argv[argv.index("--dtype") + 1] == "float16"
+    assert argv[argv.index("--revision") + 1] == REVISION
     assert "awq" in argv
     assert "--gpu-memory-utilization" in argv
     assert "--enable-prefix-caching" in argv
@@ -37,5 +43,14 @@ def test_build_vllm_command_requires_speculative_model_for_speculative_tokens() 
         build_vllm_command(model="meta-llama/example", num_speculative_tokens=4)
     except ValueError as exc:
         assert "speculative_model is required" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_build_vllm_command_rejects_mutable_revision() -> None:
+    try:
+        build_vllm_command(model="meta-llama/example", revision="main")
+    except ValueError as exc:
+        assert "full 40 to 64 character" in str(exc)
     else:
         raise AssertionError("expected ValueError")

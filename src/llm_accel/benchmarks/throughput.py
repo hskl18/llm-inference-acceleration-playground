@@ -14,21 +14,24 @@ def run_throughput_benchmark(**benchmark_kwargs: Any) -> dict[str, object]:
     payload = _build_throughput_summary(summary)
     write_json(output_dir / "throughput_summary.json", payload)
     _write_throughput_markdown(output_dir / "throughput_summary.md", payload)
+    artifacts = [
+        "manifest.json",
+        "resolved_config.json",
+        "raw_requests.jsonl",
+        "raw_requests.csv",
+        "run_metadata.json",
+        "summary.json",
+        "summary.md",
+        "plots/latency.svg",
+        "throughput_summary.json",
+        "throughput_summary.md",
+    ]
+    if (output_dir / "server_command.txt").exists():
+        artifacts.append("server_command.txt")
     write_run_manifest(
         output_dir,
         run_type="throughput_benchmark",
-        artifacts=[
-            "manifest.json",
-            "resolved_config.json",
-            "raw_requests.jsonl",
-            "raw_requests.csv",
-            "run_metadata.json",
-            "summary.json",
-            "summary.md",
-            "plots/latency.svg",
-            "throughput_summary.json",
-            "throughput_summary.md",
-        ],
+        artifacts=artifacts,
     )
     return summary
 

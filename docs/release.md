@@ -75,3 +75,13 @@ Do not publish hardware performance claims unless the run directory includes:
 - warning list for unsupported or missing measurements
 - hardware/GPU telemetry when available
 - validation output
+
+For a hardware result, run the stricter gate:
+
+```bash
+llm-accel report claim-audit --run-dir results/runs/hardware-run
+```
+
+The claim audit requires real endpoint evidence, an immutable model revision, a matching server-command file and fingerprint, accelerator and software versions, sufficient warmup and completed requests, raw request parity, p50/p95/p99 latency metrics, throughput, bounded errors, and GPU memory telemetry.
+Passing one run is not enough for a comparison claim.
+Use repeated compatible runs and publish quality evidence separately.
