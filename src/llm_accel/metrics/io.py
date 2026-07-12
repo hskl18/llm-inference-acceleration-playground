@@ -34,6 +34,8 @@ def write_request_csv(path: Path, records: Iterable[RequestMetrics]) -> None:
         "total_latency_ms",
         "completed",
         "error",
+        "started_offset_ms",
+        "completed_offset_ms",
     ]
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)

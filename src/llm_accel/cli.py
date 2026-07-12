@@ -19,6 +19,7 @@ from llm_accel.kv_cache.presets import list_kv_cache_presets
 from llm_accel.metrics.memory import sample_gpu_memory
 from llm_accel.quantization.comparison import compare_quantization_modes
 from llm_accel.reports.comparison import compare_run_summaries
+from llm_accel.reports.claim_audit import audit_hardware_claim
 from llm_accel.reports.markdown import write_summary_markdown
 from llm_accel.reports.regenerate import regenerate_run_report
 from llm_accel.reports.validation import validate_run_dir
@@ -50,6 +51,10 @@ def _add_bench_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--api-kind", choices=["chat", "completion"], default="chat")
     parser.add_argument("--prompts", default="", help="Optional plain-text or JSONL prompt file for fixed-prompt benchmarks")
     parser.add_argument("--no-stream", action="store_true", help="Use non-streaming endpoint calls")
+    parser.add_argument("--model-revision", help="Exact model revision or immutable artifact identifier")
+    parser.add_argument("--optimization-profile", default="baseline", help="Named server configuration under test")
+    parser.add_argument("--server-command-sha256", help="SHA-256 of the exact serving command record")
+    parser.add_argument("--server-command-file", help="Exact serving command record to copy into the run")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -92,6 +97,9 @@ def build_parser() -> argparse.ArgumentParser:
     compare_report.add_argument("--summary", action="append", required=True)
     compare_report.add_argument("--output-dir", required=True)
     compare_report.set_defaults(func=cmd_report_compare)
+    claim_audit = report_sub.add_parser("claim-audit", help="Audit whether one run can support a hardware claim")
+    claim_audit.add_argument("--run-dir", required=True)
+    claim_audit.set_defaults(func=cmd_report_claim_audit)
 
     examples = subparsers.add_parser("examples", help="List or write packaged example configs")
     examples_sub = examples.add_subparsers(dest="examples_command", required=True)
@@ -136,6 +144,7 @@ def build_parser() -> argparse.ArgumentParser:
     vllm_command.add_argument("--host", default="0.0.0.0")
     vllm_command.add_argument("--port", type=int, default=8000)
     vllm_command.add_argument("--dtype", default="auto")
+    vllm_command.add_argument("--revision")
     vllm_command.add_argument("--quantization")
     vllm_command.add_argument("--max-model-len", type=int)
     vllm_command.add_argument("--gpu-memory-utilization", type=float)
@@ -148,6 +157,7 @@ def build_parser() -> argparse.ArgumentParser:
     vllm_validate.add_argument("--host", default="0.0.0.0")
     vllm_validate.add_argument("--port", type=int, default=8000)
     vllm_validate.add_argument("--dtype", default="auto")
+    vllm_validate.add_argument("--revision")
     vllm_validate.add_argument("--quantization")
     vllm_validate.add_argument("--max-model-len", type=int)
     vllm_validate.add_argument("--gpu-memory-utilization", type=float)
@@ -162,7 +172,9 @@ def build_parser() -> argparse.ArgumentParser:
     vllm_plan.add_argument("--config", default="configs/benchmark_vllm_small.yaml")
     vllm_plan.add_argument("--host", default="0.0.0.0")
     vllm_plan.add_argument("--port", type=int, default=8000)
-    vllm_plan.add_argument("--dtype", default="auto")
+    vllm_plan.add_argument("--dtype", required=True)
+    vllm_plan.add_argument("--revision", required=True)
+    vllm_plan.add_argument("--hardware-label", required=True)
     vllm_plan.add_argument("--quantization")
     vllm_plan.add_argument("--max-model-len", type=int)
     vllm_plan.add_argument("--gpu-memory-utilization", type=float)
@@ -269,6 +281,10 @@ def cmd_bench_latency(args: argparse.Namespace) -> int:
         hardware_label=args.hardware_label,
         api_kind=args.api_kind,
         prompt_texts=prompt_texts,
+        model_revision=args.model_revision,
+        optimization_profile=args.optimization_profile,
+        server_command_sha256=args.server_command_sha256,
+        server_command_file=args.server_command_file,
     )
     print(json.dumps({"output_dir": output_dir, "metrics": summary["metrics"]}, indent=2, sort_keys=True))
     return 0
@@ -294,6 +310,10 @@ def cmd_bench_throughput(args: argparse.Namespace) -> int:
         hardware_label=args.hardware_label,
         api_kind=args.api_kind,
         prompt_texts=prompt_texts,
+        model_revision=args.model_revision,
+        optimization_profile=args.optimization_profile,
+        server_command_sha256=args.server_command_sha256,
+        server_command_file=args.server_command_file,
     )
     print(json.dumps({"output_dir": output_dir, "throughput": summary["metrics"]["throughput"]}, indent=2, sort_keys=True))
     return 0
@@ -333,6 +353,12 @@ def cmd_report_compare(args: argparse.Namespace) -> int:
     result = compare_run_summaries(args.summary, args.output_dir)
     print(json.dumps({"output_dir": args.output_dir, "summary_count": result["summary_count"]}, indent=2, sort_keys=True))
     return 0
+
+
+def cmd_report_claim_audit(args: argparse.Namespace) -> int:
+    result = audit_hardware_claim(args.run_dir)
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0 if result["publishable_hardware_claim"] else 1
 
 
 def cmd_examples_list(args: argparse.Namespace) -> int:
@@ -414,6 +440,7 @@ def cmd_vllm_command(args: argparse.Namespace) -> int:
         host=args.host,
         port=args.port,
         dtype=args.dtype,
+        revision=args.revision,
         quantization=args.quantization,
         max_model_len=args.max_model_len,
         gpu_memory_utilization=args.gpu_memory_utilization,
@@ -439,6 +466,7 @@ def cmd_vllm_validate(args: argparse.Namespace) -> int:
         host=args.host,
         port=args.port,
         dtype=args.dtype,
+        revision=args.revision,
         quantization=args.quantization,
         max_model_len=args.max_model_len,
         gpu_memory_utilization=args.gpu_memory_utilization,
@@ -462,7 +490,7 @@ def cmd_vllm_validate(args: argparse.Namespace) -> int:
             sort_keys=True,
         )
     )
-    return 0
+    return 0 if report["ready_for_hardware_benchmark"] else 1
 
 
 def cmd_vllm_plan(args: argparse.Namespace) -> int:
@@ -474,6 +502,8 @@ def cmd_vllm_plan(args: argparse.Namespace) -> int:
         host=args.host,
         port=args.port,
         dtype=args.dtype,
+        revision=args.revision,
+        hardware_label=args.hardware_label,
         quantization=args.quantization,
         max_model_len=args.max_model_len,
         gpu_memory_utilization=args.gpu_memory_utilization,

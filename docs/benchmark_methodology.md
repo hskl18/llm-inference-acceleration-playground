@@ -17,6 +17,10 @@ Primary metrics:
 - failed request count
 - timeout count
 
+Hardware-backed runs also record model revision, optimization profile, GPU driver, CUDA, PyTorch, backend version, repository commit, and GPU memory when the host exposes them.
+Use `llm-accel report claim-audit` before treating a run as publishable hardware evidence.
+The audit is a minimum evidence gate, not a substitute for repeated runs, compatible comparisons, or quality evaluation.
+
 ## Streaming and Non-Streaming Timing
 
 Streaming endpoint calls observe TTFT from the first content-bearing server-sent event. Non-streaming endpoint calls cannot observe first-token timing, so TTFT is conservatively recorded as total request latency.
@@ -24,6 +28,8 @@ Streaming endpoint calls observe TTFT from the first content-bearing server-sent
 ## Concurrency
 
 The benchmark runner executes measured requests with a worker pool sized by the configured `concurrency`. Summary throughput uses measured wall-clock elapsed time for the measured window, while raw request records retain per-request latency.
+Raw rows also record request start and completion offsets from the measured-window origin.
+The hardware claim audit rebuilds the measured span and derived throughput from those offsets.
 
 `bench throughput` uses the same request execution path as latency benchmarking so TTFT, latency, failure, and timeout records stay comparable. It adds throughput-focused summary artifacts while preserving raw request evidence.
 
@@ -68,6 +74,7 @@ Generated run directories can be checked with:
 ```bash
 llm-accel report generate --run-dir results/runs/example
 llm-accel report validate --run-dir results/runs/example
+llm-accel report claim-audit --run-dir results/runs/example
 ```
 
 `report generate` regenerates `summary.md` and `plots/latency.svg` from existing `summary.json` and `raw_requests.jsonl` without rerunning inference. The validator checks manifest artifacts, schema version, required summary fields, aggregate run counts, throughput summaries, comparison reports, evaluation reports, vLLM validation reports, vLLM runbooks, quantization comparisons, and speculative-decoding artifacts.

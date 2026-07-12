@@ -31,6 +31,16 @@ def run(command: list[str]) -> None:
         raise SystemExit(completed.returncode)
 
 
+def run_expect(command: list[str], expected_returncode: int) -> None:
+    completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True)
+    if completed.returncode != expected_returncode:
+        print(completed.stdout)
+        print(completed.stderr, file=sys.stderr)
+        raise SystemExit(
+            f"expected exit {expected_returncode}, got {completed.returncode}: {' '.join(command)}"
+        )
+
+
 def require_file(path: Path) -> None:
     if not path.exists():
         raise SystemExit(f"missing expected smoke artifact: {path}")
@@ -251,7 +261,7 @@ def main() -> int:
     run([sys.executable, "-m", "llm_accel.cli", "speculative", "run", "--lookahead", "4", "--output-dir", str(SPEC_OUT)])
     require_file(SPEC_OUT / "baseline_comparison.json")
     run([sys.executable, "-m", "llm_accel.cli", "vllm", "command", "--model", "mock-model", "--dtype", "auto"])
-    run(
+    run_expect(
         [
             sys.executable,
             "-m",
@@ -260,11 +270,14 @@ def main() -> int:
             "validate",
             "--model",
             "mock-model",
+            "--revision",
+            "a" * 40,
             "--base-url",
             "mock://local",
             "--output-dir",
             str(VLLM_VALIDATE_OUT),
-        ]
+        ],
+        1,
     )
     require_file(VLLM_VALIDATE_OUT / "vllm_validation.json")
     run(
@@ -276,6 +289,12 @@ def main() -> int:
             "plan",
             "--model",
             "mock-model",
+            "--revision",
+            "a" * 40,
+            "--hardware-label",
+            "ci-no-gpu",
+            "--dtype",
+            "float16",
             "--base-url",
             "http://localhost:8000/v1",
             "--output-dir",
@@ -283,6 +302,7 @@ def main() -> int:
         ]
     )
     require_file(VLLM_PLAN_OUT / "vllm_benchmark_plan.json")
+    require_file(VLLM_PLAN_OUT / "server_command.txt")
     print("smoke ok")
     return 0
 

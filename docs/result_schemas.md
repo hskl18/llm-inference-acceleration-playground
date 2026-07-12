@@ -54,8 +54,11 @@ Each line contains one request record. `raw_requests.csv` contains the same fiel
 - `total_latency_ms`
 - `completed`
 - `error`
+- `started_offset_ms`
+- `completed_offset_ms`
 
 Timeouts and endpoint errors are represented as rows with `completed: false`, zero output tokens, and a populated `error` field.
+The request offsets anchor each row to the measured window so wall-clock throughput can be reconstructed from raw evidence rather than trusted from a derived summary.
 
 ## `summary.json`
 
@@ -72,6 +75,9 @@ The `metrics.throughput.measured_elapsed_seconds` field is populated by the benc
 The `metrics.timeout_count` field counts failed request rows whose error indicates a timeout. Timeout rows remain visible in `raw_requests.jsonl`; they are not dropped from request counts.
 
 The `metadata` block includes reproducibility fields: project version, Python version, operating system, git commit when available, backend version when available, hardware label, and GPU name when available.
+
+Hardware-oriented metadata also includes `model_revision`, `optimization_profile`, `server_command_sha256`, streaming mode, `gpu_driver_version`, the PyTorch CUDA build as `cuda_version`, the NVIDIA driver API level as `cuda_driver_api_version`, and `torch_version`.
+Missing optional hardware fields remain `null` in local or mock runs rather than being inferred.
 
 The `metadata.api_kind` field records whether the run used an OpenAI-compatible `chat` endpoint or `completion` endpoint.
 
@@ -150,6 +156,7 @@ task_eval.md
 llm-accel report generate --run-dir results/runs/example
 llm-accel report validate --run-dir results/runs/example
 llm-accel report compare --summary run-a/summary.json --summary run-b/summary.json --output-dir results/runs/compare
+llm-accel report claim-audit --run-dir results/runs/example
 ```
 
 `report generate --run-dir` is analysis-only: it reads existing artifacts and regenerates `summary.md` plus `plots/latency.svg` when raw request records are available.
@@ -164,7 +171,10 @@ comparison.json
 comparison.md
 ```
 
-`comparison.json` includes `comparable`, `ranking_allowed`, and `warnings`. Reports must treat relative throughput as an inspection aid rather than a ranking when runs are too small, have failures, or differ in model, backend, dtype, quantization, hardware label, or workload shape.
+`comparison.json` includes `comparable`, `ranking_allowed`, and `warnings`.
+Reports must treat relative throughput as an inspection aid rather than a ranking when runs are too small, have failures, have fewer than three repetitions per profile, or differ in model revision, backend version, API and streaming mode, dtype, quantization, hardware and accelerator software, concurrency, request count, or workload shape.
+
+Repeated-run comparisons include `profile_aggregates` with repetition count plus mean, population standard deviation, minimum, and maximum throughput and p95 latency for each optimization profile.
 
 ## vLLM Validation
 
@@ -182,6 +192,7 @@ vllm_validation.md
 manifest.json
 vllm_benchmark_plan.json
 vllm_benchmark_plan.md
+server_command.txt
 ```
 
 ## Speculative Decoding

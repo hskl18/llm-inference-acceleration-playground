@@ -47,6 +47,7 @@ Use `vllm validate` before claiming a hardware-backed benchmark:
 ```bash
 llm-accel vllm validate \
   --model meta-llama/Llama-3.2-1B-Instruct \
+  --revision MODEL_REVISION \
   --base-url http://localhost:8000/v1 \
   --output-dir results/runs/vllm-validation
 ```
@@ -73,6 +74,9 @@ Generate a runbook for a GPU/vLLM machine:
 ```bash
 llm-accel vllm plan \
   --model meta-llama/Llama-3.2-1B-Instruct \
+  --revision MODEL_REVISION \
+  --hardware-label GPU_CLASS \
+  --dtype float16 \
   --base-url http://localhost:8000/v1 \
   --config configs/benchmark_vllm_small.yaml \
   --output-dir results/runs/vllm-plan

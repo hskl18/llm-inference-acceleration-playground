@@ -50,4 +50,6 @@ def _request_metrics_from_row(row: dict[str, object]) -> RequestMetrics:
         total_latency_ms=float(row["total_latency_ms"]),
         completed=bool(row.get("completed", True)),
         error=str(row["error"]) if row.get("error") is not None else None,
+        started_offset_ms=float(row.get("started_offset_ms", 0.0)),
+        completed_offset_ms=float(row.get("completed_offset_ms", 0.0)),
     )

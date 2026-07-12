@@ -20,6 +20,8 @@ class RequestMetrics:
     total_latency_ms: float
     completed: bool = True
     error: str | None = None
+    started_offset_ms: float = 0.0
+    completed_offset_ms: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -52,6 +54,14 @@ class RunMetadata:
     workload_fingerprint: str | None = None
     shared_prefix_tokens_estimate: int | None = None
     shared_prefix_fingerprint: str | None = None
+    model_revision: str | None = None
+    optimization_profile: str = "baseline"
+    gpu_driver_version: str | None = None
+    cuda_version: str | None = None
+    cuda_driver_api_version: str | None = None
+    torch_version: str | None = None
+    server_command_sha256: str | None = None
+    stream: bool = True
     schema_version: str = SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:

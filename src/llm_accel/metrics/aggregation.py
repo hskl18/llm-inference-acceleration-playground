@@ -57,11 +57,13 @@ def summarize_requests(records: Iterable[RequestMetrics], elapsed_seconds: float
             "mean": mean(ttfts) if ttfts else 0.0,
             "p50": percentile(ttfts, 50),
             "p95": percentile(ttfts, 95),
+            "p99": percentile(ttfts, 99),
         },
         "tpot_ms": {
             "mean": mean(tpots) if tpots else 0.0,
             "p50": percentile(tpots, 50),
             "p95": percentile(tpots, 95),
+            "p99": percentile(tpots, 99),
         },
         "throughput": {
             "output_tokens_per_second": output_tokens / effective_elapsed_s if effective_elapsed_s else 0.0,

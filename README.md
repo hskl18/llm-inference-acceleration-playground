@@ -4,6 +4,15 @@ Open source toolkit for measuring LLM inference-serving latency, throughput, KV 
 
 The project focuses on practical benchmark workflows around OpenAI-compatible serving endpoints. The first backend target is vLLM, while the current implementation includes a deterministic `mock://local` path so contributors can run tests and smoke benchmarks without a GPU.
 
+## Evidence Status
+
+No real GPU benchmark is checked into this repository yet.
+Current mock runs prove the client, artifact, validation, and reporting workflow only.
+They do not support latency, throughput, memory, quality, or acceleration claims about vLLM or any model.
+
+The next hardware experiment is fully specified in [the hardware benchmark runbook](docs/hardware_benchmark_runbook.md).
+It collects three or more repetitions for baseline and prefix-cache profiles, records the exact hardware and software environment, and blocks publication when required evidence is absent.
+
 ## Current Status
 
 This repo now contains the project proposal plus the first implementation slice:
@@ -163,6 +172,7 @@ Validate and compare generated runs:
 ```bash
 llm-accel report generate --run-dir results/runs/readme-smoke
 llm-accel report validate --run-dir results/runs/readme-smoke
+llm-accel report claim-audit --run-dir results/runs/readme-smoke
 llm-accel report compare \
   --summary results/runs/run-a/summary.json \
   --summary results/runs/run-b/summary.json \
@@ -170,6 +180,7 @@ llm-accel report compare \
 ```
 
 Comparison reports include `warnings` and `ranking_allowed`; relative throughput is not treated as a ranking when runs are too small or not comparable.
+The claim audit intentionally rejects this mock smoke run because it is not hardware evidence.
 
 Inspect backend capability metadata:
 
@@ -194,6 +205,7 @@ Validate vLLM benchmark readiness:
 ```bash
 llm-accel vllm validate \
   --model meta-llama/Llama-3.2-1B-Instruct \
+  --revision MODEL_REVISION \
   --base-url http://localhost:8000/v1 \
   --output-dir results/runs/vllm-validation
 ```
@@ -203,6 +215,9 @@ Generate a hardware benchmark runbook:
 ```bash
 llm-accel vllm plan \
   --model meta-llama/Llama-3.2-1B-Instruct \
+  --revision MODEL_REVISION \
+  --hardware-label GPU_CLASS \
+  --dtype float16 \
   --base-url http://localhost:8000/v1 \
   --output-dir results/runs/vllm-plan
 ```

@@ -32,10 +32,13 @@ def run_sweep(config_path: str | Path, output_dir: str | Path | None = None) -> 
     model = get_path(config, "model.name", "mock-model")
     dtype = get_path(config, "model.dtype", "unknown")
     quantization = get_path(config, "model.quantization", "none")
+    model_revision = get_path(config, "model.revision")
     request_count = int(get_path(config, "run.measured_requests", 8))
     warmup_count = int(get_path(config, "run.warmup_requests", 0))
     timeout_seconds = float(get_path(config, "run.timeout_seconds", 120))
     hardware_label = str(get_path(config, "run.hardware_label", "local"))
+    optimization_profile = str(get_path(config, "run.optimization_profile", "baseline"))
+    server_command_sha256 = get_path(config, "run.server_command_sha256")
     seed = int(get_path(config, "workload.seed", 42))
     prompts_path = get_path(config, "workload.prompts_path")
     if isinstance(prompts_path, str):
@@ -68,6 +71,11 @@ def run_sweep(config_path: str | Path, output_dir: str | Path | None = None) -> 
                     hardware_label=hardware_label,
                     api_kind=api_kind,
                     prompt_texts=prompt_texts,
+                    model_revision=str(model_revision) if model_revision is not None else None,
+                    optimization_profile=optimization_profile,
+                    server_command_sha256=(
+                        str(server_command_sha256) if server_command_sha256 is not None else None
+                    ),
                 )
                 runs.append(
                     {

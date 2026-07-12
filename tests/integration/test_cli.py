@@ -124,6 +124,9 @@ def test_cli_latency_benchmark_writes_outputs(tmp_path: Path) -> None:
     assert summary["metadata"]["operating_system"]
     assert "git_commit" in summary["metadata"]
     assert "gpu_name" in summary["metadata"]
+    assert "gpu_driver_version" in summary["metadata"]
+    assert "cuda_version" in summary["metadata"]
+    assert "torch_version" in summary["metadata"]
     assert summary["warnings"]
     summary_md = (output_dir / "summary.md").read_text(encoding="utf-8")
     assert "Hardware label" in summary_md
@@ -134,6 +137,15 @@ def test_cli_latency_benchmark_writes_outputs(tmp_path: Path) -> None:
     assert len(rows) == 3
     assert rows[0]["request_id"] == "req-000001"
     assert rows[0]["completed"] == "True"
+    assert float(rows[0]["completed_offset_ms"]) >= float(rows[0]["started_offset_ms"])
+
+
+def test_cli_claim_audit_rejects_missing_hardware_artifacts(tmp_path: Path, capsys) -> None:
+    assert main(["report", "claim-audit", "--run-dir", str(tmp_path)]) == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["publishable_hardware_claim"] is False
+    assert "summary.json is required" in payload["blockers"]
 
 
 def test_cli_latency_benchmark_defaults_to_timestamped_results_dir(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -518,13 +530,15 @@ def test_cli_vllm_validate_writes_blocker_report(tmp_path: Path) -> None:
                 "validate",
                 "--model",
                 "test-model",
+                "--revision",
+                "a" * 40,
                 "--base-url",
                 "mock://local",
                 "--output-dir",
                 str(output_dir),
             ]
         )
-        == 0
+        == 1
     )
 
     assert (output_dir / "manifest.json").exists()
@@ -545,6 +559,12 @@ def test_cli_vllm_plan_writes_runbook(tmp_path: Path) -> None:
                 "plan",
                 "--model",
                 "test-model",
+                "--revision",
+                "a" * 40,
+                "--hardware-label",
+                "a100-80gb",
+                "--dtype",
+                "float16",
                 "--base-url",
                 "http://localhost:8000/v1",
                 "--output-dir",
@@ -557,6 +577,7 @@ def test_cli_vllm_plan_writes_runbook(tmp_path: Path) -> None:
     assert (output_dir / "manifest.json").exists()
     assert (output_dir / "vllm_benchmark_plan.json").exists()
     assert (output_dir / "vllm_benchmark_plan.md").exists()
+    assert (output_dir / "server_command.txt").exists()
 
 
 def test_cli_speculative_outputs_reports(tmp_path: Path) -> None:
