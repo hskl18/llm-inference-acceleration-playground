@@ -19,7 +19,11 @@ from llm_accel.metrics.io import write_bytes_atomic, write_json, write_jsonl, wr
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.metrics.memory import sample_gpu_memory, summarize_memory
 from llm_accel.metrics.schemas import RequestMetrics, RunMetadata
-from llm_accel.metrics.token_counting import is_local_tokenizer_reference, load_token_counter
+from llm_accel.metrics.token_counting import (
+    TOKENIZERS_ENCODE_METHOD,
+    is_local_tokenizer_reference,
+    load_token_counter,
+)
 from llm_accel.reports.markdown import write_summary_markdown
 from llm_accel.reports.plots import write_latency_svg
 from llm_accel.serving.openai_client import OpenAICompatibleClient
@@ -71,8 +75,8 @@ def _count_prompt_tokens(prompt: str, config: _ClientConfig) -> int:
 
 
 def _token_count_method(config: _ClientConfig) -> str:
-    if config.backend == "vllm" and config.tokenizer and config.tokenizer_revision:
-        return load_token_counter(config.tokenizer, config.tokenizer_revision).method
+    if config.backend == "vllm":
+        return f"prompt=server_usage;output={TOKENIZERS_ENCODE_METHOD}"
     return "mock_synthetic" if config.backend == "mock" else "whitespace_estimate"
 
 
@@ -466,15 +470,6 @@ def run_latency_benchmark(
         server_command_sha256 = computed_sha256
         destination = out_dir.resolve() / "server_command.txt"
         write_bytes_atomic(destination, command_bytes)
-    client = OpenAICompatibleClient(
-        base_url=base_url,
-        model=model,
-        backend=backend,
-        request_timeout_seconds=timeout_seconds,
-        api_kind=api_kind,
-        tokenizer=tokenizer,
-        tokenizer_revision=tokenizer_revision,
-    )
     memory_before = sample_gpu_memory()
     workload_mode = "fixed_prompts" if prompt_texts is not None else "synthetic"
     workload_fingerprint = prompt_fingerprint(prompt_texts) if prompt_texts is not None else None
@@ -483,6 +478,15 @@ def run_latency_benchmark(
     shared_fingerprint = shared_prefix_fingerprint(prompt_texts) if prompt_texts is not None else None
 
     if warmup_count:
+        client = OpenAICompatibleClient(
+            base_url=base_url,
+            model=model,
+            backend=backend,
+            request_timeout_seconds=timeout_seconds,
+            api_kind=api_kind,
+            tokenizer=tokenizer,
+            tokenizer_revision=tokenizer_revision,
+        )
         warmup_prompts = fixed_prompt_batch(prompt_texts, warmup_count) if prompt_texts is not None else prompt_batch(warmup_count, input_tokens, seed)
         for index, prompt in enumerate(warmup_prompts):
             client.complete(prompt, output_tokens, index, stream=stream)

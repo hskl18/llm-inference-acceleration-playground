@@ -13,7 +13,7 @@ from llm_accel.metrics.optimization_profile import (
     OptimizationProfile,
     load_bound_optimization_profile,
 )
-from llm_accel.metrics.schemas import RequestMetrics
+from llm_accel.metrics.schemas import SCHEMA_VERSION, RequestMetrics
 from llm_accel.metrics.token_counting import is_local_tokenizer_reference
 from llm_accel.reports.validation import validate_run_dir
 from llm_accel.serving.vllm import normalize_vllm_dtype, optimization_profile_name
@@ -49,6 +49,10 @@ def audit_hardware_claim(run_dir: str | Path) -> dict[str, object]:
     if not isinstance(metadata, dict) or not isinstance(metrics, dict) or not isinstance(memory, dict):
         blockers.append("summary metadata, metrics, and memory must be objects")
         return _report(path, blockers, warnings, {})
+    if summary.get("schema_version") != SCHEMA_VERSION:
+        blockers.append(
+            f"summary schema {summary.get('schema_version')!r} is unsupported; expected {SCHEMA_VERSION!r}"
+        )
 
     required_metadata = {
         "backend_version": "backend version",
@@ -63,9 +67,8 @@ def audit_hardware_claim(run_dir: str | Path) -> dict[str, object]:
         "environment_fingerprint": "environment fingerprint",
         "endpoint_sha256": "endpoint fingerprint",
         "token_count_method": "token count method",
+        "optimization_profile_fingerprint": "optimization profile fingerprint",
     }
-    if (path / "optimization_profile.json").exists():
-        required_metadata["optimization_profile_fingerprint"] = "optimization profile fingerprint"
     for key, label in required_metadata.items():
         if metadata.get(key) in {None, "", "unknown"}:
             blockers.append(f"missing {label} ({key})")
@@ -163,12 +166,7 @@ def audit_hardware_claim(run_dir: str | Path) -> dict[str, object]:
                 blockers.append(f"metrics.throughput.{key} must be finite and positive")
 
     _validate_server_command(path, metadata, blockers)
-    if (
-        (path / "optimization_profile.json").exists()
-        or metadata.get("optimization_profile_spec") is not None
-        or metadata.get("optimization_profile_fingerprint") is not None
-    ):
-        _validate_optimization_profile(path, metadata, blockers)
+    _validate_optimization_profile(path, metadata, blockers)
     _validate_quality_execution_identity(metadata, blockers)
 
     client_configuration = metadata.get("client_configuration")

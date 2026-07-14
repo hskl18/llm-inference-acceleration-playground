@@ -232,7 +232,8 @@ def _load_profile(
             summary_path.parent,
             inline,
             require_artifact=bool(
-                metadata.get("matrix_name")
+                inline is not None
+                or metadata.get("matrix_name")
                 or metadata.get("optimization_profile_fingerprint")
             ),
         )

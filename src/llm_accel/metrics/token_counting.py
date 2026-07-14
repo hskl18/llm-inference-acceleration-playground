@@ -5,6 +5,9 @@ from pathlib import Path
 from typing import Protocol
 
 
+TOKENIZERS_ENCODE_METHOD = "tokenizers.encode(add_special_tokens=false)"
+
+
 class TokenCounter(Protocol):
     method: str
 
@@ -12,7 +15,7 @@ class TokenCounter(Protocol):
 
 
 class TokenizersCounter:
-    method = "tokenizers.encode(add_special_tokens=false)"
+    method = TOKENIZERS_ENCODE_METHOD
 
     def __init__(self, tokenizer: object) -> None:
         self._tokenizer = tokenizer
