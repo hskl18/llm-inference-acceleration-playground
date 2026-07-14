@@ -19,7 +19,11 @@ from llm_accel.metrics.io import write_bytes_atomic, write_json, write_jsonl, wr
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.metrics.memory import sample_gpu_memory, summarize_memory
 from llm_accel.metrics.schemas import RequestMetrics, RunMetadata
-from llm_accel.metrics.token_counting import is_local_tokenizer_reference, load_token_counter
+from llm_accel.metrics.token_counting import (
+    TOKENIZERS_ENCODE_METHOD,
+    is_local_tokenizer_reference,
+    load_token_counter,
+)
 from llm_accel.reports.markdown import write_summary_markdown
 from llm_accel.reports.plots import write_latency_svg
 from llm_accel.serving.openai_client import OpenAICompatibleClient
@@ -71,8 +75,8 @@ def _count_prompt_tokens(prompt: str, config: _ClientConfig) -> int:
 
 
 def _token_count_method(config: _ClientConfig) -> str:
-    if config.backend == "vllm" and config.tokenizer and config.tokenizer_revision:
-        return load_token_counter(config.tokenizer, config.tokenizer_revision).method
+    if config.backend == "vllm":
+        return f"prompt=server_usage;output={TOKENIZERS_ENCODE_METHOD}"
     return "mock_synthetic" if config.backend == "mock" else "whitespace_estimate"
 
 

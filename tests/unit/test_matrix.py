@@ -369,6 +369,35 @@ def test_fresh_matrix_atomically_replaces_evidence_leaf_symlinks(tmp_path: Path)
         assert artifact_path.is_file()
 
 
+def test_fresh_matrix_rejects_symlinked_evidence_parent_directories(tmp_path: Path) -> None:
+    output_dir = tmp_path / "matrix"
+    run_dir = output_dir / "baseline" / "repeat-01" / "c2-in32-out8"
+    run_dir.mkdir(parents=True)
+    outside_plots = tmp_path / "outside-plots"
+    outside_plots.mkdir()
+    outside_latency = outside_plots / "latency.svg"
+    outside_latency.write_text("preserve plot\n", encoding="utf-8")
+    (run_dir / "plots").symlink_to(outside_plots, target_is_directory=True)
+
+    outside_comparison = tmp_path / "outside-comparison"
+    outside_comparison.mkdir()
+    outside_comparison_json = outside_comparison / "comparison.json"
+    outside_comparison_json.write_text("preserve comparison\n", encoding="utf-8")
+    (output_dir / "comparison").symlink_to(
+        outside_comparison,
+        target_is_directory=True,
+    )
+
+    result = run_matrix(ROOT / "configs" / "optimization_matrix_mock.yaml", output_dir)
+
+    assert result["execution_failed_run_count"] == 1
+    assert result["comparison_error"] is not None
+    assert "symlink" in str(result["comparison_error"])
+    assert outside_latency.read_text(encoding="utf-8") == "preserve plot\n"
+    assert outside_comparison_json.read_text(encoding="utf-8") == "preserve comparison\n"
+    assert sorted(path.name for path in outside_comparison.iterdir()) == ["comparison.json"]
+
+
 def test_matrix_rejects_command_mutation_after_plan_creation(monkeypatch, tmp_path: Path) -> None:
     original = matrix_module._run_planned_cell
     attacked = False
@@ -547,6 +576,18 @@ def test_v02_claim_and_comparison_cannot_remove_profile_enforcement_triggers(
     assert any(
         blocker["code"] == "invalid_optimization_profile"
         for blocker in comparison_row["evidence_blockers"]
+    )
+
+    claim_summary["schema_version"] = "0.1"
+    claim_summary_path.write_text(json.dumps(claim_summary), encoding="utf-8")
+    downgraded_claim = audit_hardware_claim(claim_run)
+    assert any(
+        "summary schema '0.1' is unsupported" in blocker
+        for blocker in downgraded_claim["blockers"]
+    )
+    assert any(
+        "optimization_profile.json is required" in blocker
+        for blocker in downgraded_claim["blockers"]
     )
 
 

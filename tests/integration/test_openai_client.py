@@ -319,6 +319,51 @@ def test_multiprocess_vllm_workers_do_not_resolve_tokenizer_in_measurement(
     assert all(row["output_tokens"] == 4 for row in rows)
 
 
+def test_multiprocess_vllm_failure_paths_do_not_resolve_worker_tokenizer(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    class CharacterTokenCounter:
+        method = "tokenizers.encode(add_special_tokens=false)"
+
+        def count(self, text: str) -> int:
+            return len(text)
+
+    monkeypatch.setattr(
+        "llm_accel.benchmarks.latency.load_token_counter",
+        lambda tokenizer, revision: CharacterTokenCounter(),
+    )
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    server, base_url = _start_server()
+    try:
+        summary = run_latency_benchmark(
+            base_url=base_url,
+            model="mock",
+            backend="vllm",
+            tokenizer="not-cached/tokenizer",
+            tokenizer_revision="b" * 40,
+            concurrency=2,
+            input_tokens=2,
+            output_tokens=8,
+            output_dir=tmp_path,
+            request_count=4,
+            prompt_texts=["test"],
+            client_processes=2,
+            stream=False,
+        )
+    finally:
+        server.shutdown()
+
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "raw_requests.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert summary["metrics"]["completed_count"] == 0
+    assert summary["metrics"]["failed_count"] == 4
+    assert all("server prompt token usage" in str(row["error"]) for row in rows)
+    assert all("client process failed" not in str(row["error"]) for row in rows)
+
+
 def test_vllm_benchmark_rejects_mutable_local_tokenizer_evidence(tmp_path) -> None:
     tokenizer = Tokenizer(models.WordLevel({"[UNK]": 0}, unk_token="[UNK]"))
     tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
