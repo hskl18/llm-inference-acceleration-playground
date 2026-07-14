@@ -9,7 +9,10 @@ from pathlib import Path
 
 from llm_accel.metrics.aggregation import summarize_requests
 from llm_accel.metrics.environment import environment_fingerprint
-from llm_accel.metrics.optimization_profile import OptimizationProfile, load_optimization_profile
+from llm_accel.metrics.optimization_profile import (
+    OptimizationProfile,
+    load_bound_optimization_profile,
+)
 from llm_accel.metrics.schemas import RequestMetrics
 from llm_accel.reports.validation import validate_run_dir
 from llm_accel.serving.vllm import normalize_vllm_dtype, optimization_profile_name
@@ -57,6 +60,8 @@ def audit_hardware_claim(run_dir: str | Path) -> dict[str, object]:
         "server_command_sha256": "exact server command fingerprint",
         "tokenizer_revision": "exact tokenizer revision",
         "environment_fingerprint": "environment fingerprint",
+        "endpoint_sha256": "endpoint fingerprint",
+        "token_count_method": "token count method",
     }
     if (path / "optimization_profile.json").exists():
         required_metadata["optimization_profile_fingerprint"] = "optimization profile fingerprint"
@@ -81,6 +86,14 @@ def audit_hardware_claim(run_dir: str | Path) -> dict[str, object]:
 
     if metadata.get("backend") != "vllm" or str(metadata.get("base_url", "")).startswith("mock://"):
         blockers.append("hardware claims require a vLLM endpoint run, not mock or relabeled output")
+    if (
+        metadata.get("backend") == "vllm"
+        and metadata.get("token_count_method")
+        != "tokenizers.encode(add_special_tokens=false)"
+    ):
+        blockers.append(
+            "vLLM hardware claims require tokenizers.encode(add_special_tokens=false) model-token counts"
+        )
     if metadata.get("dtype") in {None, "", "unknown", "auto"}:
         blockers.append("an exact dtype must be recorded")
     else:
@@ -148,6 +161,7 @@ def audit_hardware_claim(run_dir: str | Path) -> dict[str, object]:
     _validate_server_command(path, metadata, blockers)
     if (path / "optimization_profile.json").exists():
         _validate_optimization_profile(path, metadata, blockers)
+    _validate_quality_execution_identity(metadata, blockers)
 
     client_configuration = metadata.get("client_configuration")
     if not isinstance(client_configuration, dict):
@@ -215,6 +229,27 @@ def audit_hardware_claim(run_dir: str | Path) -> dict[str, object]:
     return _report(path, blockers, warnings, evidence)
 
 
+def _validate_quality_execution_identity(
+    metadata: dict[str, object],
+    blockers: list[str],
+) -> None:
+    quality_gate = metadata.get("quality_gate")
+    if quality_gate is None:
+        return
+    if not isinstance(quality_gate, dict):
+        blockers.append("quality_gate must be an object")
+        return
+    expected = {
+        "profile": metadata.get("optimization_profile"),
+        "model": metadata.get("model"),
+        "backend": metadata.get("backend"),
+        "base_url": metadata.get("base_url"),
+        "endpoint_sha256": metadata.get("endpoint_sha256"),
+    }
+    if quality_gate.get("execution_identity") != expected:
+        blockers.append("quality evidence execution identity does not match summary metadata")
+
+
 def _validate_server_command(
     path: Path,
     metadata: dict[str, object],
@@ -276,13 +311,19 @@ def _validate_optimization_profile(
     blockers: list[str],
 ) -> None:
     try:
-        profile = load_optimization_profile(path / "optimization_profile.json")
+        profile = load_bound_optimization_profile(
+            path,
+            metadata.get("optimization_profile_spec"),
+        )
+        if profile is None:
+            raise ValueError("optimization profile is missing")
     except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
         blockers.append(f"optimization_profile.json is required and must be valid: {exc}")
         return
     expected = {
         "model": profile.model,
         "model_revision": profile.model_revision,
+        "tokenizer": profile.tokenizer,
         "tokenizer_revision": profile.tokenizer_revision,
         "backend": profile.backend,
         "backend_version": profile.backend_version,
@@ -337,6 +378,9 @@ def _validate_raw_requests(
     metrics: dict[str, object],
     blockers: list[str],
 ) -> None:
+    methods = {row.get("token_count_method") for row in rows}
+    if methods != {metadata.get("token_count_method")}:
+        blockers.append("summary token_count_method does not match raw requests")
     completed = [row for row in rows if row.get("completed") is True]
     failed = [row for row in rows if row.get("completed") is False]
     if len(completed) != metrics.get("completed_count") or len(failed) != metrics.get("failed_count"):

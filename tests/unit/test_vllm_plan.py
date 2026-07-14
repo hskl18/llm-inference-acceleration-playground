@@ -1,5 +1,7 @@
 import shlex
 
+import pytest
+
 from llm_accel.serving.vllm_plan import create_vllm_benchmark_plan
 
 
@@ -55,3 +57,15 @@ def test_create_vllm_benchmark_plan_writes_runbook(tmp_path) -> None:
     assert (tmp_path / "vllm_benchmark_plan.json").exists()
     assert (tmp_path / "vllm_benchmark_plan.md").exists()
     assert (tmp_path / "server_command.txt").exists()
+
+
+def test_vllm_plan_requires_revision_for_distinct_tokenizer(tmp_path) -> None:
+    with pytest.raises(ValueError, match="tokenizer_revision"):
+        create_vllm_benchmark_plan(
+            model="test-model",
+            base_url="http://localhost:8000/v1",
+            output_dir=tmp_path,
+            revision=REVISION,
+            tokenizer="independent/tokenizer",
+            dtype="float16",
+        )

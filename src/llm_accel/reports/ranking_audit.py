@@ -9,7 +9,7 @@ from pathlib import Path
 
 from llm_accel.evaluation.validators import validate_output
 from llm_accel.metrics.environment import environment_fingerprint
-from llm_accel.metrics.optimization_profile import load_optimization_profile
+from llm_accel.metrics.optimization_profile import load_bound_optimization_profile
 from llm_accel.reports.claim_audit import audit_hardware_claim
 from llm_accel.reports.comparison import compare_run_summaries
 from llm_accel.reports.validation import validate_run_dir
@@ -41,6 +41,7 @@ def audit_performance_ranking(matrix_dir: str | Path) -> dict[str, object]:
         runs = []
     profile_repetitions: dict[str, set[int]] = defaultdict(set)
     treatment_fingerprints: dict[str, set[str]] = defaultdict(set)
+    run_execution_identities: dict[str, set[str]] = defaultdict(set)
     audited_summary_paths: list[Path] = []
     source_audits: list[dict[str, object]] = []
     for state in runs:
@@ -72,6 +73,11 @@ def audit_performance_ranking(matrix_dir: str | Path) -> dict[str, object]:
         treatment = run_evidence.get("treatment_fingerprint")
         if isinstance(treatment, str):
             treatment_fingerprints[profile].add(treatment)
+        identity = run_evidence.get("execution_identity")
+        if isinstance(identity, dict):
+            run_execution_identities[profile].add(
+                json.dumps(identity, sort_keys=True, separators=(",", ":"))
+            )
         single = audit_hardware_claim(run_dir)
         source_audits.append(
             {
@@ -110,10 +116,16 @@ def audit_performance_ranking(matrix_dir: str | Path) -> dict[str, object]:
                 profile=profile,
             )
 
-    _audit_quality(root, matrix.get("quality"), profile_repetitions, blockers)
+    _audit_quality(
+        root,
+        matrix.get("quality"),
+        profile_repetitions,
+        run_execution_identities,
+        blockers,
+    )
     _audit_run_quality_bindings(root, runs, matrix.get("quality"), blockers)
     if comparison is not None:
-        _audit_comparison_chain(comparison, audited_summary_paths, blockers)
+        _audit_comparison_chain(root, comparison, audited_summary_paths, blockers)
         if not comparison.get("ranking_allowed"):
             _add(
                 blockers,
@@ -178,6 +190,7 @@ def _audit_run_quality_bindings(
             "quality_gate": {
                 "task_set_sha256": result.get("task_set_sha256"),
                 "max_allowed_score_drop": result.get("max_allowed_score_drop"),
+                "execution_identity": result.get("execution_identity"),
             },
             "quality_score": result.get("mean_score"),
             "quality_score_drop_from_baseline": result.get("score_drop_from_baseline"),
@@ -198,12 +211,46 @@ def _audit_run_quality_bindings(
 
 
 def _audit_comparison_chain(
+    root: Path,
     comparison: dict[str, object],
     summary_paths: list[Path],
     blockers: list[dict[str, object]],
 ) -> None:
     if len(summary_paths) < 2 or not all(path.exists() for path in summary_paths):
         _add(blockers, "comparison_source_mismatch", "Comparison sources do not match readable matrix summaries.")
+        return
+    run_rows = comparison.get("runs")
+    if not isinstance(run_rows, list):
+        _add(blockers, "invalid_comparison_source", "Comparison run sources must be a list.")
+        return
+    reported_paths: set[Path] = set()
+    resolved_root = root.resolve()
+    for row in run_rows:
+        value = row.get("summary_path") if isinstance(row, dict) else None
+        if not isinstance(value, str) or Path(value).is_absolute():
+            _add(
+                blockers,
+                "invalid_comparison_source",
+                "Comparison summary paths must be relative to the matrix output root.",
+            )
+            return
+        resolved = (resolved_root / value).resolve()
+        try:
+            resolved.relative_to(resolved_root)
+        except ValueError:
+            _add(
+                blockers,
+                "invalid_comparison_source",
+                "Comparison summary paths must remain inside the matrix output root.",
+            )
+            return
+        reported_paths.add(resolved)
+    if reported_paths != {path.resolve() for path in summary_paths}:
+        _add(
+            blockers,
+            "comparison_source_mismatch",
+            "Comparison sources do not match matrix run summaries.",
+        )
         return
     baseline_profile = comparison.get("baseline_profile", "baseline")
     comparison_mode = comparison.get("comparison_mode", "strict")
@@ -217,6 +264,7 @@ def _audit_comparison_chain(
                 Path(temporary),
                 baseline_profile=baseline_profile,
                 comparison_mode=comparison_mode,
+                source_root=root,
             )
     except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
         _add(blockers, "comparison_recompute_failed", f"Comparison could not be recomputed: {exc}")
@@ -351,6 +399,13 @@ def _audit_run_evidence(
     if not isinstance(metadata, dict) or not isinstance(metrics, dict):
         _add(blockers, "invalid_run_summary", f"Run {run_id} has invalid metadata or metrics.", run_id=run_id)
         return evidence
+    evidence["execution_identity"] = {
+        "profile": metadata.get("optimization_profile"),
+        "model": metadata.get("model"),
+        "backend": metadata.get("backend"),
+        "base_url": metadata.get("base_url"),
+        "endpoint_sha256": metadata.get("endpoint_sha256"),
+    }
     if planned is not None:
         expected_metadata = {
             "matrix_name": planned.get("matrix_name"),
@@ -358,7 +413,7 @@ def _audit_run_evidence(
             "matrix_randomized_order": planned.get("randomized_profile_order"),
             "optimization_profile": planned.get("profile"),
             "concurrency": planned.get("concurrency"),
-            "input_tokens": planned.get("input_tokens"),
+            "requested_input_tokens": planned.get("input_tokens"),
             "output_tokens": planned.get("output_tokens"),
         }
         for field, expected in expected_metadata.items():
@@ -370,9 +425,20 @@ def _audit_run_evidence(
                     run_id=run_id,
                     field=field,
                 )
-    profile_path = run_dir / "optimization_profile.json"
+        if evidence["execution_identity"] != planned.get("execution_identity"):
+            _add(
+                blockers,
+                "planned_execution_identity_mismatch",
+                f"Run {run_id} execution identity does not match matrix_plan.json.",
+                run_id=run_id,
+            )
     try:
-        profile = load_optimization_profile(profile_path)
+        profile = load_bound_optimization_profile(
+            run_dir,
+            metadata.get("optimization_profile_spec"),
+        )
+        if profile is None:
+            raise ValueError("optimization profile is missing")
     except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
         _add(
             blockers,
@@ -562,6 +628,7 @@ def _audit_quality(
     root: Path,
     quality: object,
     profile_repetitions: dict[str, set[int]],
+    run_execution_identities: dict[str, set[str]],
     blockers: list[dict[str, object]],
 ) -> None:
     if not isinstance(quality, list) or not quality:
@@ -646,6 +713,25 @@ def _audit_quality(
         )
         if evidence is None:
             continue
+        result_identity = result.get("execution_identity")
+        evidence_identity = evidence.get("execution_identity")
+        expected_identities = run_execution_identities.get(profile, set())
+        expected_identity = None
+        if len(expected_identities) == 1:
+            expected_identity = json.loads(next(iter(expected_identities)))
+        if (
+            not isinstance(result_identity, dict)
+            or evidence_identity != result_identity
+            or expected_identity is None
+            or result_identity != expected_identity
+            or any(evidence.get(field) != result_identity.get(field) for field in ["model", "backend", "base_url"])
+        ):
+            _add(
+                blockers,
+                "quality_execution_identity_mismatch",
+                f"Profile {profile!r} quality evidence is not bound to its measured execution identity.",
+                profile=profile,
+            )
         if evidence.get("task_set_sha256") != fingerprint:
             _add(
                 blockers,

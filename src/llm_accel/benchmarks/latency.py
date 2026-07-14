@@ -15,10 +15,12 @@ from pathlib import Path
 from llm_accel import __version__
 from llm_accel.metrics.aggregation import summarize_requests
 from llm_accel.metrics.environment import collect_environment_metadata, environment_fingerprint
+from llm_accel.metrics.execution_identity import displayed_base_url, endpoint_sha256
 from llm_accel.metrics.io import write_json, write_jsonl, write_request_csv
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.metrics.memory import sample_gpu_memory, summarize_memory
 from llm_accel.metrics.schemas import RequestMetrics, RunMetadata
+from llm_accel.metrics.token_counting import load_token_counter
 from llm_accel.reports.markdown import write_summary_markdown
 from llm_accel.reports.plots import write_latency_svg
 from llm_accel.serving.openai_client import OpenAICompatibleClient
@@ -53,6 +55,20 @@ class _ClientConfig:
     output_tokens: int
     stream: bool
     concurrency: int
+    tokenizer: str | None
+    tokenizer_revision: str | None
+
+
+def _count_prompt_tokens(prompt: str, config: _ClientConfig) -> int:
+    if config.backend == "vllm" and config.tokenizer and config.tokenizer_revision:
+        return load_token_counter(config.tokenizer, config.tokenizer_revision).count(prompt)
+    return estimate_prompt_tokens(prompt)
+
+
+def _token_count_method(config: _ClientConfig) -> str:
+    if config.backend == "vllm" and config.tokenizer and config.tokenizer_revision:
+        return load_token_counter(config.tokenizer, config.tokenizer_revision).method
+    return "mock_synthetic" if config.backend == "mock" else "whitespace_estimate"
 
 
 def _sleep_until(target: float) -> None:
@@ -81,6 +97,8 @@ def _execute_request(
         backend=config.backend,
         request_timeout_seconds=config.timeout_seconds,
         api_kind=config.api_kind,
+        tokenizer=config.tokenizer,
+        tokenizer_revision=config.tokenizer_revision,
     )
     try:
         result = client.complete(spec.prompt, config.output_tokens, spec.index, stream=config.stream)
@@ -89,12 +107,13 @@ def _execute_request(
             request_id=f"req-{spec.index + 1:06d}",
             model=config.model,
             backend=config.backend,
-            input_tokens=estimate_prompt_tokens(spec.prompt),
+            input_tokens=result.input_tokens or _count_prompt_tokens(spec.prompt, config),
             output_tokens=result.output_tokens,
             concurrency=config.concurrency,
             ttft_ms=result.ttft_ms,
             tpot_ms=result.tpot_ms,
             total_latency_ms=max(completed - dispatch, 0.0),
+            token_count_method=result.token_count_method,
             completed=True,
             error=None,
             started_offset_ms=dispatch,
@@ -110,12 +129,13 @@ def _execute_request(
             request_id=f"req-{spec.index + 1:06d}",
             model=config.model,
             backend=config.backend,
-            input_tokens=estimate_prompt_tokens(spec.prompt),
+            input_tokens=_count_prompt_tokens(spec.prompt, config),
             output_tokens=0,
             concurrency=config.concurrency,
             ttft_ms=0.0,
             tpot_ms=0.0,
             total_latency_ms=max(completed - dispatch, 0.0),
+            token_count_method=_token_count_method(config),
             completed=False,
             error=str(exc),
             started_offset_ms=dispatch,
@@ -143,12 +163,13 @@ def _client_failure_record(
         request_id=f"req-{spec.index + 1:06d}",
         model=config.model,
         backend=config.backend,
-        input_tokens=estimate_prompt_tokens(spec.prompt),
+        input_tokens=_count_prompt_tokens(spec.prompt, config),
         output_tokens=0,
         concurrency=config.concurrency,
         ttft_ms=0.0,
         tpot_ms=0.0,
         total_latency_ms=max(completed - dispatch, 0.0),
+        token_count_method=_token_count_method(config),
         completed=False,
         error=error,
         started_offset_ms=dispatch,
@@ -403,6 +424,8 @@ def run_latency_benchmark(
         backend=backend,
         request_timeout_seconds=timeout_seconds,
         api_kind=api_kind,
+        tokenizer=tokenizer,
+        tokenizer_revision=tokenizer_revision,
     )
     memory_before = sample_gpu_memory()
     workload_mode = "fixed_prompts" if prompt_texts is not None else "synthetic"
@@ -420,9 +443,17 @@ def run_latency_benchmark(
     prompts = fixed_prompt_batch(prompt_texts, request_count) if prompt_texts is not None else prompt_batch(request_count, input_tokens, seed + warmup_count)
     if prompt_texts is None:
         workload_fingerprint = prompt_fingerprint(prompts)
-    prompt_token_counts = [estimate_prompt_tokens(prompt) for prompt in prompts]
-    metadata_input_tokens = round(sum(prompt_token_counts) / len(prompt_token_counts)) if prompt_texts is not None else input_tokens
     effective_backend = "mock" if base_url.startswith("mock://") else backend
+    if effective_backend == "vllm":
+        if tokenizer is None or tokenizer_revision is None:
+            raise ValueError("vLLM benchmarks require tokenizer and tokenizer_revision")
+        token_counter = load_token_counter(tokenizer, tokenizer_revision)
+        prompt_token_counts = [token_counter.count(prompt) for prompt in prompts]
+        token_count_method = token_counter.method
+    else:
+        prompt_token_counts = [estimate_prompt_tokens(prompt) for prompt in prompts]
+        token_count_method = "mock_synthetic" if effective_backend == "mock" else "whitespace_estimate"
+    metadata_input_tokens = round(sum(prompt_token_counts) / len(prompt_token_counts))
     backend_version = detect_backend_version(effective_backend)
     client_configuration = {
         "request_schedule": request_schedule,
@@ -443,6 +474,8 @@ def run_latency_benchmark(
         output_tokens=output_tokens,
         stream=stream,
         concurrency=concurrency,
+        tokenizer=tokenizer,
+        tokenizer_revision=tokenizer_revision,
     )
     records = _run_measured_requests(
         prompts=prompts,
@@ -456,7 +489,8 @@ def run_latency_benchmark(
     measured_elapsed_seconds = measured_span_seconds(records)
     memory_after = sample_gpu_memory()
     resolved_config = {
-        "base_url": base_url if base_url.startswith(("mock://", "http://localhost", "http://127.0.0.1")) else "redacted",
+        "base_url": displayed_base_url(base_url),
+        "endpoint_sha256": endpoint_sha256(base_url),
         "model": model,
         "concurrency": concurrency,
         "input_tokens": input_tokens,
@@ -488,6 +522,7 @@ def run_latency_benchmark(
         "client_workers": concurrency,
         "queue_delay_warning_ms": queue_delay_warning_ms,
         "client_configuration": client_configuration,
+        "token_count_method": token_count_method,
     }
     environment = collect_environment_metadata(
         cwd=Path.cwd(),
@@ -498,12 +533,14 @@ def run_latency_benchmark(
         model=model,
         backend=effective_backend,
         backend_version=backend_version,
-        base_url=base_url if base_url.startswith(("mock://", "http://localhost", "http://127.0.0.1")) else "redacted",
+        base_url=displayed_base_url(base_url),
+        endpoint_sha256=endpoint_sha256(base_url),
         api_kind=api_kind,
         dtype=dtype,
         quantization=quantization,
         concurrency=concurrency,
         input_tokens=metadata_input_tokens,
+        requested_input_tokens=input_tokens,
         output_tokens=output_tokens,
         request_count=request_count,
         warmup_count=warmup_count,
@@ -540,6 +577,7 @@ def run_latency_benchmark(
         client_workers=concurrency,
         queue_delay_warning_ms=queue_delay_warning_ms,
         client_configuration=client_configuration,
+        token_count_method=token_count_method,
     )
     metadata_dict = metadata.to_dict()
     metadata_dict["environment_fingerprint"] = environment_fingerprint(metadata_dict)

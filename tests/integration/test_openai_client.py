@@ -20,19 +20,28 @@ class _OpenAIHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
+            prompt = payload.get("prompt") or payload.get("messages", [{}])[0].get("content")
+            if prompt == "测试":
+                chunks = ["你好", "世界"]
+            else:
+                chunks = ["hello ", "world"]
             if self.path.endswith("/completions") and not self.path.endswith("/chat/completions"):
-                self.wfile.write(b'data: {"choices":[{"text":"hello "}]}\n\n')
+                self.wfile.write(
+                    f'data: {{"choices":[{{"text":{json.dumps(chunks[0])}}}]}}\n\n'.encode()
+                )
             else:
                 self.wfile.write(
-                    b'data: {"choices":[{"delta":{"content":"hello "}}]}\n\n'
+                    f'data: {{"choices":[{{"delta":{{"content":{json.dumps(chunks[0])}}}}}]}}\n\n'.encode()
                 )
             self.wfile.flush()
             time.sleep(0.01)
             if self.path.endswith("/completions") and not self.path.endswith("/chat/completions"):
-                self.wfile.write(b'data: {"choices":[{"text":"world"}]}\n\n')
+                self.wfile.write(
+                    f'data: {{"choices":[{{"text":{json.dumps(chunks[1])}}}]}}\n\n'.encode()
+                )
             else:
                 self.wfile.write(
-                    b'data: {"choices":[{"delta":{"content":"world"}}]}\n\n'
+                    f'data: {{"choices":[{{"delta":{{"content":{json.dumps(chunks[1])}}}}}]}}\n\n'.encode()
                 )
             self.wfile.write(b"data: [DONE]\n\n")
             self.wfile.flush()
@@ -94,6 +103,72 @@ def test_openai_client_streaming_observes_ttft() -> None:
     assert result.output_tokens == 2
     assert result.ttft_ms < result.total_latency_ms
     assert _OpenAIHandler.seen_paths == ["/v1/chat/completions"]
+
+
+def test_vllm_streaming_counts_final_text_with_resolved_tokenizer() -> None:
+    class CharacterTokenCounter:
+        method = "tokenizers.encode(add_special_tokens=false)"
+
+        def count(self, text: str) -> int:
+            return len(text)
+
+    server, base_url = _start_server()
+    try:
+        client = OpenAICompatibleClient(
+            base_url=base_url,
+            model="mock",
+            backend="vllm",
+            token_counter=CharacterTokenCounter(),
+        )
+        result = client.complete("测试", max_tokens=8, stream=True)
+    finally:
+        server.shutdown()
+
+    assert result.output_text == "你好世界"
+    assert result.input_tokens == 2
+    assert result.output_tokens == 4
+    assert result.token_count_method == "tokenizers.encode(add_special_tokens=false)"
+
+
+def test_vllm_benchmark_binds_tokenizer_counts_and_method(monkeypatch, tmp_path) -> None:
+    class CharacterTokenCounter:
+        method = "tokenizers.encode(add_special_tokens=false)"
+
+        def count(self, text: str) -> int:
+            return len(text)
+
+    monkeypatch.setattr(
+        "llm_accel.benchmarks.latency.load_token_counter",
+        lambda tokenizer, revision: CharacterTokenCounter(),
+    )
+    monkeypatch.setattr(
+        "llm_accel.serving.openai_client.load_token_counter",
+        lambda tokenizer, revision: CharacterTokenCounter(),
+    )
+    server, base_url = _start_server()
+    try:
+        summary = run_latency_benchmark(
+            base_url=base_url,
+            model="mock",
+            backend="vllm",
+            tokenizer="resolved-tokenizer",
+            tokenizer_revision="b" * 40,
+            concurrency=1,
+            input_tokens=2,
+            output_tokens=8,
+            output_dir=tmp_path,
+            request_count=1,
+            prompt_texts=["测试"],
+        )
+    finally:
+        server.shutdown()
+
+    row = json.loads((tmp_path / "raw_requests.jsonl").read_text(encoding="utf-8"))
+    assert row["input_tokens"] == 2
+    assert row["output_tokens"] == 4
+    assert row["token_count_method"] == "tokenizers.encode(add_special_tokens=false)"
+    assert summary["metadata"]["token_count_method"] == "tokenizers.encode(add_special_tokens=false)"
+    assert summary["metrics"]["output_tokens"] == 4
 
 
 def test_openai_client_completion_endpoint_non_streaming() -> None:

@@ -18,6 +18,7 @@ class RequestMetrics:
     ttft_ms: float
     tpot_ms: float
     total_latency_ms: float
+    token_count_method: str = "unknown"
     completed: bool = True
     error: str | None = None
     started_offset_ms: float = 0.0
@@ -37,11 +38,13 @@ class RunMetadata:
     backend: str
     backend_version: str | None
     base_url: str
+    endpoint_sha256: str
     api_kind: str
     dtype: str
     quantization: str
     concurrency: int
     input_tokens: int
+    requested_input_tokens: int
     output_tokens: int
     request_count: int
     warmup_count: int
@@ -74,6 +77,7 @@ class RunMetadata:
     client_workers: int = 1
     queue_delay_warning_ms: float = 10.0
     client_configuration: dict[str, Any] | None = None
+    token_count_method: str = "unknown"
     schema_version: str = SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:

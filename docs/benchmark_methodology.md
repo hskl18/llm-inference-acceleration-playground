@@ -15,6 +15,10 @@ Primary metrics:
 - total latency: request start to final token
 - output tokens/sec
 - requests/sec
+
+vLLM runs resolve the declared tokenizer at its immutable revision before warmup and count prompts plus final generated text with `encode(add_special_tokens=False)`.
+Streaming responses are joined before the final tokenizer count, so token boundaries that span chunks remain correct.
+Whitespace estimates remain explicit for generic compatibility runs and cannot satisfy the vLLM hardware-claim gate.
 - p50, p95, p99 latency
 - failed request count
 - timeout count
@@ -102,6 +106,7 @@ The profile records the backend and exact version, exact server command text and
 The semantic fingerprint covers the complete profile except its display name.
 The treatment fingerprint covers settings that intentionally differ between experiment arms.
 The exact command byte hash remains an explicit field and participates in profile identity, so even whitespace changes remain visible rather than being normalized away.
+The summary and raw request rows also bind the token-count method used for TPOT and output tokens/sec.
 
 Matrix profiles are experimental treatments.
 Model, tokenizer, workload, arrival schedule, client configuration, quality gate, environment, request shape, warmups, and request counts are comparison invariants.

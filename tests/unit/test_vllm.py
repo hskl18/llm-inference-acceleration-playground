@@ -58,3 +58,15 @@ def test_build_vllm_command_rejects_mutable_revision() -> None:
         assert "full 40 to 64 character" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_distinct_tokenizer_does_not_inherit_model_revision() -> None:
+    command = build_vllm_command(
+        model="meta-llama/example",
+        revision=REVISION,
+        tokenizer="independent/tokenizer",
+    )
+
+    assert command.tokenizer == "independent/tokenizer"
+    assert command.tokenizer_revision is None
+    assert "--tokenizer-revision" not in command.argv()

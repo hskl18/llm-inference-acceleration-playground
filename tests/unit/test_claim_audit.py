@@ -121,6 +121,26 @@ def test_claim_audit_recomputes_performance_metrics_from_raw_rows(tmp_path) -> N
     assert any("measured_elapsed_seconds does not match" in blocker for blocker in report["blockers"])
 
 
+def test_claim_audit_binds_token_count_method_to_raw_rows(tmp_path) -> None:
+    run_latency_benchmark(
+        base_url="mock://local",
+        model="mock-model",
+        concurrency=1,
+        input_tokens=16,
+        output_tokens=8,
+        output_dir=tmp_path,
+        request_count=2,
+    )
+    summary_path = tmp_path / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["metadata"]["token_count_method"] = "tokenizers.encode(add_special_tokens=false)"
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    report = audit_hardware_claim(tmp_path)
+
+    assert any("token_count_method does not match raw requests" in blocker for blocker in report["blockers"])
+
+
 def test_claim_audit_binds_optimization_profile_to_command_flags(tmp_path) -> None:
     command_file = tmp_path.parent / "baseline-command.txt"
     command_file.write_text(

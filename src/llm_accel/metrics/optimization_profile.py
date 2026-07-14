@@ -16,6 +16,10 @@ OPTIMIZATION_PROFILE_ARTIFACT = "optimization_profile.json"
 _IMMUTABLE_REVISION = re.compile(r"[0-9a-f]{40,64}")
 
 
+class OptimizationProfileMismatchError(ValueError):
+    pass
+
+
 @dataclass(frozen=True)
 class OptimizationProfile:
     name: str
@@ -269,6 +273,22 @@ def load_optimization_profile(path: str | Path) -> OptimizationProfile:
     if not isinstance(payload, dict):
         raise ValueError("optimization profile artifact must contain an object")
     return optimization_profile_from_dict(payload)
+
+
+def load_bound_optimization_profile(
+    run_dir: str | Path,
+    inline: object,
+) -> OptimizationProfile | None:
+    artifact_path = Path(run_dir) / OPTIMIZATION_PROFILE_ARTIFACT
+    artifact_profile = load_optimization_profile(artifact_path) if artifact_path.exists() else None
+    inline_profile = optimization_profile_from_dict(inline) if isinstance(inline, dict) else None
+    if artifact_profile is not None and inline_profile is not None:
+        if artifact_profile.to_dict() != inline_profile.to_dict():
+            raise OptimizationProfileMismatchError(
+                "summary optimization_profile_spec does not match optimization_profile.json"
+            )
+        return artifact_profile
+    return artifact_profile or inline_profile
 
 
 def fingerprint_payload(payload: Mapping[str, object]) -> str:

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from llm_accel.evaluation.io import write_mapping_jsonl
 from llm_accel.evaluation.validators import normalize_validator, validate_output
+from llm_accel.metrics.execution_identity import execution_identity
 from llm_accel.metrics.io import write_json
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.metrics.schemas import SCHEMA_VERSION
@@ -41,11 +42,20 @@ def evaluate_tasks(
     task_specs: list[dict[str, object]],
     output_dir: str | Path,
     backend: str = "openai-compatible",
+    profile: str = "standalone",
+    tokenizer: str | None = None,
+    tokenizer_revision: str | None = None,
     max_tokens: int = 64,
     stream: bool = False,
 ) -> dict[str, object]:
     specs = _normalize_task_specs(task_specs)
-    client = OpenAICompatibleClient(base_url=base_url, model=model, backend=backend)
+    client = OpenAICompatibleClient(
+        base_url=base_url,
+        model=model,
+        backend=backend,
+        tokenizer=tokenizer,
+        tokenizer_revision=tokenizer_revision,
+    )
     checks: list[dict[str, object]] = []
     outputs: list[dict[str, object]] = []
     for index, spec in enumerate(specs):
@@ -66,6 +76,7 @@ def evaluate_tasks(
                     "ttft_ms": 0.0,
                     "total_latency_ms": 0.0,
                     "error": str(exc),
+                    "token_count_method": "unavailable",
                 }
             )
             checks.append(
@@ -90,6 +101,7 @@ def evaluate_tasks(
                 "ttft_ms": result.ttft_ms,
                 "total_latency_ms": result.total_latency_ms,
                 "error": None,
+                "token_count_method": result.token_count_method,
             }
         )
         validation = validate_output(result.output_text, validator)
@@ -109,11 +121,18 @@ def evaluate_tasks(
     passed_count = sum(1 for check in checks if check["passed"])
     failed_count = task_count - passed_count
     mean_score = sum(float(check["score"]) for check in checks) / task_count
+    identity = execution_identity(
+        profile=profile,
+        model=model,
+        backend=backend,
+        base_url=base_url,
+    )
     report = {
         "schema_version": SCHEMA_VERSION,
-        "model": model,
-        "backend": "mock" if base_url.startswith("mock://") else backend,
-        "base_url": base_url if base_url.startswith(("mock://", "http://localhost", "http://127.0.0.1")) else "redacted",
+        "model": identity["model"],
+        "backend": identity["backend"],
+        "base_url": identity["base_url"],
+        "execution_identity": identity,
         "task_set_sha256": _task_set_sha256(specs),
         "task_count": task_count,
         "passed_count": passed_count,

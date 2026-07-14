@@ -250,6 +250,8 @@ def build_parser() -> argparse.ArgumentParser:
     task.add_argument("--base-url", default="mock://local")
     task.add_argument("--model", default="mock-model")
     task.add_argument("--backend", default="mock")
+    task.add_argument("--tokenizer")
+    task.add_argument("--tokenizer-revision")
     task.add_argument("--tasks", required=True)
     task.add_argument("--output-dir", default="results/runs/task-eval")
     task.add_argument("--max-tokens", type=int, default=64)
@@ -630,6 +632,8 @@ def cmd_eval_task(args: argparse.Namespace) -> int:
         base_url=args.base_url,
         model=args.model,
         backend=args.backend,
+        tokenizer=args.tokenizer,
+        tokenizer_revision=args.tokenizer_revision,
         task_specs=load_task_specs(args.tasks),
         output_dir=args.output_dir,
         max_tokens=args.max_tokens,

@@ -25,7 +25,7 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = ["jsonschema>=4.23"]
+dependencies = ["jsonschema>=4.23", "tokenizers>=0.20"]
 
 [project.urls]
 Homepage = "https://github.com/hskl18/llm-inference-acceleration-playground"

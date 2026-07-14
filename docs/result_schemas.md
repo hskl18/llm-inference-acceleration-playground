@@ -87,7 +87,9 @@ Timeout rows remain visible in `raw_requests.jsonl`; they are not dropped from r
 
 The `metadata` block includes reproducibility fields: project version, Python version, operating system, git commit when available, backend version when available, hardware label, and GPU name when available.
 
-Hardware-oriented metadata also includes `model_revision`, `tokenizer`, `tokenizer_revision`, `optimization_profile`, `server_command_sha256`, `environment_fingerprint`, streaming mode, `gpu_driver_version`, the PyTorch CUDA build as `cuda_version`, the NVIDIA driver API level as `cuda_driver_api_version`, and `torch_version`.
+Hardware-oriented metadata also includes `model_revision`, `tokenizer`, `tokenizer_revision`, `token_count_method`, `endpoint_sha256`, `requested_input_tokens`, `optimization_profile`, `server_command_sha256`, `environment_fingerprint`, streaming mode, `gpu_driver_version`, the PyTorch CUDA build as `cuda_version`, the NVIDIA driver API level as `cuda_driver_api_version`, and `torch_version`.
+For vLLM evidence, `input_tokens`, per-request `output_tokens`, TPOT, and output tokens/sec use the resolved tokenizer rather than whitespace splitting.
+The endpoint fingerprint binds redacted remote endpoint evidence without persisting the endpoint URL.
 Missing optional hardware fields remain `null` in local or mock runs rather than being inferred.
 
 The `metadata.api_kind` field records whether the run used an OpenAI-compatible `chat` endpoint or `completion` endpoint.

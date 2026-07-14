@@ -13,12 +13,11 @@ from llm_accel.metrics.environment import (
 from llm_accel.metrics.io import write_json
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.metrics.optimization_profile import (
-    OPTIMIZATION_PROFILE_ARTIFACT,
     OPTIMIZATION_PROFILE_SCHEMA_VERSION,
     OptimizationProfile,
+    OptimizationProfileMismatchError,
     fingerprint_payload,
-    load_optimization_profile,
-    optimization_profile_from_dict,
+    load_bound_optimization_profile,
 )
 
 
@@ -33,6 +32,7 @@ def compare_run_summaries(
     *,
     baseline_profile: str = "baseline",
     comparison_mode: str = "strict",
+    source_root: str | Path | None = None,
 ) -> dict[str, object]:
     if len(summary_paths) < 2:
         raise ValueError("at least two summary paths are required")
@@ -41,8 +41,21 @@ def compare_run_summaries(
     if not baseline_profile.strip():
         raise ValueError("baseline_profile must be a non-empty string")
 
+    out_dir = Path(output_dir)
     resolved_paths = [Path(path).resolve() for path in summary_paths]
-    rows = [_load_run_row(path) for path in resolved_paths]
+    resolved_source_root = Path(source_root or out_dir.parent).resolve()
+    relative_paths: list[str] = []
+    for path in resolved_paths:
+        try:
+            relative_paths.append(path.relative_to(resolved_source_root).as_posix())
+        except ValueError as exc:
+            raise ValueError(
+                f"summary path {path} must be contained by source root {resolved_source_root}"
+            ) from exc
+    rows = [
+        _load_run_row(path, summary_identity=relative)
+        for path, relative in zip(resolved_paths, relative_paths, strict=True)
+    ]
     strata = _build_strata(rows, baseline_profile=baseline_profile)
     blockers: list[dict[str, object]] = []
     if len(set(resolved_paths)) != len(resolved_paths):
@@ -91,7 +104,6 @@ def compare_run_summaries(
             "Stratified mode permits rankings within a stratum but never across strata.",
         ],
     }
-    out_dir = Path(output_dir)
     write_json(out_dir / "comparison.json", report)
     _write_markdown(out_dir / "comparison.md", report)
     write_run_manifest(
@@ -102,7 +114,7 @@ def compare_run_summaries(
     return report
 
 
-def _load_run_row(path: Path) -> dict[str, object]:
+def _load_run_row(path: Path, *, summary_identity: str) -> dict[str, object]:
     try:
         summary = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -173,16 +185,16 @@ def _load_run_row(path: Path) -> dict[str, object]:
     invariant_fingerprint = (
         fingerprint_payload(invariants)
         if not any(blocker["code"] == "missing_invariant" for blocker in evidence_blockers)
-        else "invalid:" + fingerprint_payload({"summary_path": str(path)})
+        else "invalid:" + fingerprint_payload({"summary_path": summary_identity})
     )
     profile_name = profile.name if profile else str(metadata.get("optimization_profile", "legacy"))
     profile_fingerprint = (
         profile.treatment_fingerprint
         if profile
-        else "legacy:" + fingerprint_payload({"summary_path": str(path), "name": profile_name})
+        else "legacy:" + fingerprint_payload({"summary_path": summary_identity, "name": profile_name})
     )
     return {
-        "summary_path": str(path),
+        "summary_path": summary_identity,
         "schema_version": summary.get("schema_version"),
         "model": profile.model if profile else metadata.get("model"),
         "backend": profile.backend if profile else metadata.get("backend"),
@@ -216,11 +228,13 @@ def _load_profile(
     if inline is None and isinstance(metadata.get("optimization_profile"), dict):
         inline = metadata.get("optimization_profile")
     try:
-        if isinstance(inline, dict):
-            profile = optimization_profile_from_dict(inline)
-        else:
-            artifact = summary_path.parent / OPTIMIZATION_PROFILE_ARTIFACT
-            profile = load_optimization_profile(artifact) if artifact.exists() else None
+        profile = load_bound_optimization_profile(summary_path.parent, inline)
+    except OptimizationProfileMismatchError as exc:
+        blockers.append(_blocker("optimization_profile_mismatch", str(exc)))
+        try:
+            profile = load_bound_optimization_profile(summary_path.parent, None)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            return None
     except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
         blockers.append(_blocker("invalid_optimization_profile", str(exc)))
         return None
@@ -250,7 +264,9 @@ def _comparison_invariants(
 ) -> dict[str, object]:
     schedule = _first_present(metadata, "request_schedule", "workload_schedule", "schedule")
     client = _first_present(metadata, "client_configuration", "client_config", "load_generator")
-    quality = _first_present(metadata, "quality_gate", "quality_gate_fingerprint")
+    quality = _quality_comparison_identity(
+        _first_present(metadata, "quality_gate", "quality_gate_fingerprint")
+    )
     values: dict[str, object] = {
         "backend": profile.backend if profile else metadata.get("backend"),
         "backend_version": profile.backend_version if profile else metadata.get("backend_version"),
@@ -260,6 +276,7 @@ def _comparison_invariants(
         "tokenizer_revision": (
             profile.tokenizer_revision if profile else metadata.get("tokenizer_revision")
         ),
+        "token_count_method": metadata.get("token_count_method"),
         "api_kind": metadata.get("api_kind"),
         "stream": metadata.get("stream"),
         "workload_mode": metadata.get("workload_mode"),
@@ -303,6 +320,16 @@ def _comparison_invariants(
                 )
             )
     return values
+
+
+def _quality_comparison_identity(value: object) -> object:
+    if not isinstance(value, dict):
+        return value
+    return {
+        key: item
+        for key, item in value.items()
+        if key != "execution_identity"
+    }
 
 
 def _build_strata(

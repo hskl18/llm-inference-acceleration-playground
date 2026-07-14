@@ -113,7 +113,10 @@ def build_vllm_command(
     if revision is not None:
         require_immutable_revision(revision)
     resolved_tokenizer = tokenizer or model
-    resolved_tokenizer_revision = tokenizer_revision or revision
+    if tokenizer is None or tokenizer == model:
+        resolved_tokenizer_revision = tokenizer_revision or revision
+    else:
+        resolved_tokenizer_revision = tokenizer_revision
     if resolved_tokenizer_revision is not None:
         require_immutable_revision(resolved_tokenizer_revision)
     normalized_dtype = normalize_vllm_dtype(dtype)

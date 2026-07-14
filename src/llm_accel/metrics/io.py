@@ -38,6 +38,27 @@ def write_json_atomic(path: Path, payload: object) -> None:
             temporary_path.unlink()
 
 
+def write_bytes_atomic(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary_path = Path(handle.name)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
+
+
 def write_jsonl(path: Path, records: Iterable[RequestMetrics]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
@@ -57,6 +78,7 @@ def write_request_csv(path: Path, records: Iterable[RequestMetrics]) -> None:
         "ttft_ms",
         "tpot_ms",
         "total_latency_ms",
+        "token_count_method",
         "completed",
         "error",
         "started_offset_ms",

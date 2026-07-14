@@ -3,7 +3,10 @@ import json
 import pytest
 
 from llm_accel.metrics.environment import environment_fingerprint
-from llm_accel.metrics.optimization_profile import create_optimization_profile
+from llm_accel.metrics.optimization_profile import (
+    create_optimization_profile,
+    write_optimization_profile,
+)
 from llm_accel.reports.comparison import compare_run_summaries
 
 
@@ -65,6 +68,7 @@ def _summary(
             "environment_fingerprint": profile.environment_fingerprint,
             "api_kind": "chat",
             "stream": True,
+            "token_count_method": "tokenizers.encode(add_special_tokens=false)",
             "workload_mode": "fixed_prompts",
             "workload_fingerprint": workload_fingerprint,
             "concurrency": 8,
@@ -118,6 +122,27 @@ def test_compare_uses_declared_baseline_aggregate_not_input_order(tmp_path) -> N
     assert aggregates[1]["relative_to_baseline"] == pytest.approx(210.0 / 110.0)
     assert (tmp_path / "out" / "comparison.json").exists()
     assert (tmp_path / "out" / "comparison.md").exists()
+
+
+def test_comparison_rejects_inline_profile_that_differs_from_artifact(tmp_path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    baseline = _profile("baseline")
+    treatment = _profile("prefix-cache", prefix_cache=True)
+    write_optimization_profile(run_dir, baseline)
+    summary_path = run_dir / "summary.json"
+    _summary(summary_path, 100.0, profile=treatment)
+    control_dir = tmp_path / "control"
+    control_dir.mkdir()
+    write_optimization_profile(control_dir, baseline)
+    control_path = control_dir / "summary.json"
+    _summary(control_path, 100.0, profile=baseline)
+
+    report = compare_run_summaries([summary_path, control_path], tmp_path / "out")
+
+    blockers = report["runs"][0]["evidence_blockers"]
+    assert any(blocker["code"] == "optimization_profile_mismatch" for blocker in blockers)
+    assert report["runs"][0]["optimization_profile_fingerprint"] == baseline.semantic_fingerprint
 
 
 def test_legacy_summaries_remain_readable_but_cannot_rank(tmp_path) -> None:

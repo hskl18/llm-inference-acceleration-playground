@@ -4,7 +4,7 @@ import hashlib
 import json
 import math
 import random
-import shutil
+import re
 from itertools import product
 from pathlib import Path
 from typing import Any
@@ -13,8 +13,9 @@ from llm_accel.benchmarks.throughput import run_throughput_benchmark
 from llm_accel.config.loader import get_path, load_config, sanitize_resolved_config, validate_benchmark_config
 from llm_accel.evaluation.tasks import evaluate_tasks, load_task_specs
 from llm_accel.evaluation.validators import validate_output
-from llm_accel.metrics.io import write_json, write_json_atomic
+from llm_accel.metrics.io import write_bytes_atomic, write_json, write_json_atomic
 from llm_accel.metrics.environment import environment_fingerprint
+from llm_accel.metrics.execution_identity import execution_identity
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.metrics.optimization_profile import (
     create_optimization_profile,
@@ -35,6 +36,7 @@ REQUIRED_PROFILE_ROLES = {
     "speculative",
 }
 MIN_REPETITIONS = 3
+PROFILE_SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
 
 def run_matrix(
@@ -48,7 +50,9 @@ def run_matrix(
     validate_benchmark_config(config)
     profiles = _validate_matrix_config(config)
     matrix_name = str(get_path(config, "matrix.name", "optimization-matrix"))
-    base_output = Path(output_dir or get_path(config, "run.output_dir", f"results/runs/{matrix_name}"))
+    base_output = Path(
+        output_dir or get_path(config, "run.output_dir", f"results/runs/{matrix_name}")
+    ).expanduser().resolve()
     base_output.mkdir(parents=True, exist_ok=True)
     config_digest = _config_digest(config, config_file)
     plan_path = base_output / "matrix_plan.json"
@@ -81,7 +85,7 @@ def run_matrix(
     for planned in plan["runs"]:
         run_id = str(planned["run_id"])
         entry = state_by_id[run_id]
-        run_dir = base_output / run_id
+        run_dir = _contained_path(base_output, run_id)
         if resume and entry.get("status") == "succeeded" and _valid_existing_run(
             run_dir,
             planned,
@@ -134,7 +138,11 @@ def run_matrix(
     comparison_error: str | None = None
     if len(summary_paths) >= 2:
         try:
-            comparison = compare_run_summaries(summary_paths, base_output / "comparison")
+            comparison = compare_run_summaries(
+                summary_paths,
+                base_output / "comparison",
+                source_root=base_output,
+            )
         except Exception as exc:
             comparison_error = f"{type(exc).__name__}: {exc}"
 
@@ -214,6 +222,11 @@ def _validate_matrix_config(config: dict[str, Any]) -> dict[str, dict[str, Any]]
             if not isinstance(name, str) or not isinstance(payload, dict):
                 errors.append("every profile must be a named mapping")
                 continue
+            if PROFILE_SLUG.fullmatch(name) is None:
+                errors.append(
+                    f"profile name {name!r} must be a lowercase hyphen-separated slug"
+                )
+                continue
             profiles[name] = payload
     missing = sorted(REQUIRED_PROFILE_ROLES - set(profiles))
     if missing:
@@ -236,10 +249,28 @@ def _validate_matrix_config(config: dict[str, Any]) -> dict[str, dict[str, Any]]
     if len(real_endpoints) != len(set(real_endpoints)):
         errors.append("real matrix profiles must use distinct pre-launched endpoint URLs")
     model_revision = get_path(config, "model.revision")
+    global_tokenizer = get_path(config, "model.tokenizer", get_path(config, "model.name"))
     tokenizer_revision = get_path(config, "model.tokenizer_revision")
     for field, value in [("model.revision", model_revision), ("model.tokenizer_revision", tokenizer_revision)]:
         if not isinstance(value, str) or len(value) < 40:
             errors.append(f"{field} must be an immutable hexadecimal revision")
+    for name, profile in profiles.items():
+        profile_tokenizer = profile.get("tokenizer")
+        profile_revision = profile.get("tokenizer_revision")
+        if (
+            isinstance(profile_tokenizer, str)
+            and profile_tokenizer != global_tokenizer
+            and profile_revision is None
+        ):
+            errors.append(
+                f"profiles.{name}.tokenizer_revision is required for a profile-specific tokenizer"
+            )
+        if profile_revision is not None and (
+            not isinstance(profile_revision, str) or len(profile_revision) < 40
+        ):
+            errors.append(
+                f"profiles.{name}.tokenizer_revision must be an immutable hexadecimal revision"
+            )
     for field in ["workload.input_tokens", "workload.output_tokens", "workload.concurrency"]:
         values = _as_list(get_path(config, field))
         if len(values) != len(set(values)):
@@ -270,6 +301,17 @@ def _build_plan(
         random.Random(seed + repetition).shuffle(order)
         for randomized_order, profile_name in enumerate(order, start=1):
             profile = profiles[profile_name]
+            profile_identity = execution_identity(
+                profile=profile_name,
+                model=str(get_path(config, "model.name")),
+                backend=str(
+                    profile.get(
+                        "backend",
+                        get_path(config, "endpoint.backend", "openai-compatible"),
+                    )
+                ),
+                base_url=str(profile.get("base_url", get_path(config, "endpoint.base_url"))),
+            )
             for cell_index, (input_tokens, output_tokens, concurrency) in enumerate(cells, start=1):
                 cell_name = f"c{int(concurrency)}-in{int(input_tokens)}-out{int(output_tokens)}"
                 run_id = f"{profile_name}/repeat-{repetition:02d}/{cell_name}"
@@ -287,6 +329,7 @@ def _build_plan(
                         "input_tokens": int(input_tokens),
                         "output_tokens": int(output_tokens),
                         "concurrency": int(concurrency),
+                        "execution_identity": profile_identity,
                         "server_command_file": _materialize_command(
                             config_file,
                             base_output,
@@ -323,11 +366,10 @@ def _run_planned_cell(
     backend = str(profile_config.get("backend", get_path(config, "endpoint.backend", "openai-compatible")))
     model = str(get_path(config, "model.name"))
     model_revision = str(profile_config.get("model_revision", get_path(config, "model.revision")))
-    tokenizer = str(profile_config.get("tokenizer", get_path(config, "model.tokenizer", model)))
-    tokenizer_revision = str(profile_config.get("tokenizer_revision", get_path(config, "model.tokenizer_revision")))
+    tokenizer, tokenizer_revision = _resolve_profile_tokenizer(config, profile_config)
     dtype = str(profile_config.get("dtype", get_path(config, "model.dtype", "unknown")))
     quantization = str(profile_config.get("quantization", "none"))
-    run_dir = base_output / str(planned["run_id"])
+    run_dir = _contained_path(base_output, str(planned["run_id"]))
     command_path = Path(str(planned["server_command_file"]))
     command_text = command_path.read_text(encoding="utf-8")
     prompt_path = get_path(config, "workload.prompts_path")
@@ -356,6 +398,8 @@ def _run_planned_cell(
         api_kind=str(get_path(config, "endpoint.api_kind", "chat")),
         prompt_texts=prompt_texts,
         model_revision=model_revision,
+        tokenizer=tokenizer,
+        tokenizer_revision=tokenizer_revision,
         optimization_profile=profile_name,
         server_command_file=command_path,
         request_schedule=str(get_path(config, "workload.request_schedule", "closed-loop")),
@@ -430,6 +474,7 @@ def _bind_profile_to_summary(
         metadata["quality_gate"] = {
             "task_set_sha256": quality["task_set_sha256"],
             "max_allowed_score_drop": quality["max_allowed_score_drop"],
+            "execution_identity": quality["execution_identity"],
         }
         metadata["quality_score"] = quality["mean_score"]
         metadata["quality_score_drop_from_baseline"] = quality["score_drop_from_baseline"]
@@ -453,20 +498,19 @@ def _materialize_command(
     profile_name: str,
     profile: dict[str, Any],
 ) -> str:
-    command_dir = base_output / "profile_commands"
+    command_dir = _contained_path(base_output, "profile_commands")
     command_dir.mkdir(parents=True, exist_ok=True)
-    destination = command_dir / f"{profile_name}.txt"
-    if destination.exists():
-        return str(destination)
+    destination = _contained_path(base_output, "profile_commands", f"{profile_name}.txt")
     command_file = profile.get("server_command_file")
     if isinstance(command_file, str):
         source = Path(command_file)
         if not source.is_absolute():
             source = config_file.parent / source
-        shutil.copyfile(source, destination)
+        command_bytes = source.read_bytes()
     else:
         command = str(profile["server_command"])
-        destination.write_text(command if command.endswith("\n") else command + "\n", encoding="utf-8")
+        command_bytes = (command if command.endswith("\n") else command + "\n").encode("utf-8")
+    write_bytes_atomic(destination, command_bytes)
     return str(destination)
 
 
@@ -534,16 +578,30 @@ def _valid_existing_run(
         "matrix_randomized_order": planned.get("randomized_profile_order"),
         "optimization_profile": planned.get("profile"),
         "concurrency": planned.get("concurrency"),
-        "input_tokens": planned.get("input_tokens"),
+        "requested_input_tokens": planned.get("input_tokens"),
         "output_tokens": planned.get("output_tokens"),
     }
     if any(metadata.get(field) != expected for field, expected in expected_metadata.items()):
+        return False
+    actual_identity = {
+        "profile": metadata.get("optimization_profile"),
+        "model": metadata.get("model"),
+        "backend": metadata.get("backend"),
+        "base_url": metadata.get("base_url"),
+        "endpoint_sha256": metadata.get("endpoint_sha256"),
+    }
+    if actual_identity != planned.get("execution_identity"):
+        return False
+    if {row.get("token_count_method") for row in rows} != {
+        metadata.get("token_count_method")
+    }:
         return False
     if quality is not None:
         expected_quality = {
             "quality_gate": {
                 "task_set_sha256": quality.get("task_set_sha256"),
                 "max_allowed_score_drop": quality.get("max_allowed_score_drop"),
+                "execution_identity": quality.get("execution_identity"),
             },
             "quality_score": quality.get("mean_score"),
             "quality_score_drop_from_baseline": quality.get("score_drop_from_baseline"),
@@ -674,24 +732,39 @@ def _run_quality_gates(
     max_allowed_score_drop = float(get_path(config, "quality.max_allowed_score_drop", 0.0))
     raw: dict[str, dict[str, object]] = {}
     for profile_name, profile in profiles.items():
-        output_dir = base_output / "quality" / profile_name
+        output_dir = _contained_path(base_output, "quality", profile_name)
         report_path = output_dir / "task_eval.json"
-        if resume and report_path.exists() and _valid_existing_quality_run(output_dir, task_specs):
+        base_url = str(profile.get("base_url", get_path(config, "endpoint.base_url")))
+        backend = str(profile.get("backend", get_path(config, "endpoint.backend", "openai-compatible")))
+        identity = execution_identity(
+            profile=profile_name,
+            model=str(get_path(config, "model.name")),
+            backend=backend,
+            base_url=base_url,
+        )
+        tokenizer, tokenizer_revision = _resolve_profile_tokenizer(config, profile)
+        if resume and report_path.exists() and _valid_existing_quality_run(
+            output_dir,
+            task_specs,
+            identity,
+        ):
             report = json.loads(report_path.read_text(encoding="utf-8"))
         else:
-            base_url = str(profile.get("base_url", get_path(config, "endpoint.base_url")))
-            backend = str(profile.get("backend", get_path(config, "endpoint.backend", "openai-compatible")))
             report = evaluate_tasks(
                 base_url=base_url,
                 model=str(get_path(config, "model.name")),
                 task_specs=task_specs,
                 output_dir=output_dir,
                 backend=backend,
+                profile=profile_name,
+                tokenizer=tokenizer,
+                tokenizer_revision=tokenizer_revision,
                 max_tokens=max_tokens,
                 stream=bool(get_path(config, "endpoint.stream", True)),
             )
         raw[profile_name] = {
             "profile": profile_name,
+            "execution_identity": report["execution_identity"],
             "task_set_sha256": report["task_set_sha256"],
             "mean_score": float(report["mean_score"]),
             "task_passed": bool(report["passed"]),
@@ -709,6 +782,7 @@ def _run_quality_gates(
 def _valid_existing_quality_run(
     output_dir: Path,
     expected_specs: list[dict[str, object]],
+    expected_identity: dict[str, str],
 ) -> bool:
     try:
         if not validate_run_dir(output_dir)["valid"]:
@@ -724,6 +798,11 @@ def _valid_existing_quality_run(
         return False
     if specs != expected_specs:
         return False
+    if report.get("execution_identity") != expected_identity:
+        return False
+    for field in ["model", "backend", "base_url"]:
+        if report.get(field) != expected_identity[field]:
+            return False
     checks = report.get("checks") if isinstance(report, dict) else None
     if not isinstance(checks, list) or len(specs) != len(outputs) or len(specs) != len(checks) or not specs:
         return False
@@ -781,6 +860,32 @@ def _numbers_close(value: object, expected: float) -> bool:
 
 def _as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else [value]
+
+
+def _resolve_profile_tokenizer(
+    config: dict[str, Any],
+    profile: dict[str, Any],
+) -> tuple[str, str]:
+    model = str(get_path(config, "model.name"))
+    global_tokenizer = str(get_path(config, "model.tokenizer", model))
+    tokenizer = str(profile.get("tokenizer", global_tokenizer))
+    if tokenizer == global_tokenizer:
+        revision = profile.get("tokenizer_revision", get_path(config, "model.tokenizer_revision"))
+    else:
+        revision = profile.get("tokenizer_revision")
+    if not isinstance(revision, str):
+        raise ValueError("profile-specific tokenizer requires tokenizer_revision")
+    return tokenizer, revision
+
+
+def _contained_path(root: Path, *parts: str) -> Path:
+    resolved_root = root.resolve()
+    candidate = resolved_root.joinpath(*parts).resolve()
+    try:
+        candidate.relative_to(resolved_root)
+    except ValueError as exc:
+        raise ValueError(f"derived output path escapes matrix output root: {candidate}") from exc
+    return candidate
 
 
 def _optional_string(value: object) -> str | None:

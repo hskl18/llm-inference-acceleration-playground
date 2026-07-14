@@ -50,6 +50,10 @@ def create_vllm_benchmark_plan(
         speculative_model=speculative_model,
         num_speculative_tokens=num_speculative_tokens,
     )
+    if command.tokenizer_revision is None:
+        raise ValueError(
+            "tokenizer_revision is required when tokenizer is independent from the model"
+        )
     server_command_text = command.shell_command() + "\n"
     server_command_sha256 = hashlib.sha256(server_command_text.encode("utf-8")).hexdigest()
     out_dir = Path(output_dir)
