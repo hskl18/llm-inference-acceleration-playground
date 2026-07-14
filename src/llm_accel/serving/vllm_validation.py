@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-from llm_accel.metrics.io import write_json
+from llm_accel.metrics.io import write_json, write_text_atomic
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.metrics.memory import sample_gpu_memory
 from llm_accel.serving.health import check_endpoint_health
@@ -20,6 +20,8 @@ def validate_vllm_environment(
     port: int = 8000,
     dtype: str = "auto",
     revision: str | None = None,
+    tokenizer: str | None = None,
+    tokenizer_revision: str | None = None,
     quantization: str | None = None,
     max_model_len: int | None = None,
     gpu_memory_utilization: float | None = None,
@@ -38,6 +40,8 @@ def validate_vllm_environment(
         port=port,
         dtype=dtype,
         revision=revision,
+        tokenizer=tokenizer,
+        tokenizer_revision=tokenizer_revision,
         quantization=quantization,
         max_model_len=max_model_len,
         gpu_memory_utilization=gpu_memory_utilization,
@@ -149,4 +153,4 @@ def _write_markdown(path: Path, report: dict[str, object]) -> None:
         ]
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    write_text_atomic(path, text)

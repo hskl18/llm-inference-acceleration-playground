@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -118,6 +119,36 @@ def validate_benchmark_config(config: dict[str, Any]) -> None:
             _require_positive_int_list(config, "workload.input_tokens", errors)
     _require_positive_int_list(config, "workload.output_tokens", errors)
     _require_positive_int_list(config, "workload.concurrency", errors)
+    request_schedule = get_path(config, "workload.request_schedule", "closed-loop")
+    if request_schedule not in {"closed-loop", "open-loop"}:
+        errors.append("workload.request_schedule must be 'closed-loop' or 'open-loop'")
+    request_rate_rps = get_path(config, "workload.request_rate_rps")
+    if request_schedule == "open-loop" and request_rate_rps is None:
+        errors.append("workload.request_rate_rps is required for open-loop scheduling")
+    if request_rate_rps is not None and (
+        not isinstance(request_rate_rps, (int, float))
+        or isinstance(request_rate_rps, bool)
+        or not math.isfinite(request_rate_rps)
+        or request_rate_rps <= 0
+    ):
+        errors.append("workload.request_rate_rps must be a positive number")
+    client_processes = get_path(config, "run.client_processes", 1)
+    if not isinstance(client_processes, int) or isinstance(client_processes, bool) or client_processes <= 0:
+        errors.append("run.client_processes must be a positive integer")
+    else:
+        concurrencies = get_path(config, "workload.concurrency", [])
+        concurrency_values = concurrencies if isinstance(concurrencies, list) else [concurrencies]
+        if concurrency_values and all(isinstance(value, int) for value in concurrency_values):
+            if client_processes > min(concurrency_values):
+                errors.append("run.client_processes must not exceed any workload.concurrency value")
+    queue_delay_warning_ms = get_path(config, "run.queue_delay_warning_ms", 10.0)
+    if (
+        not isinstance(queue_delay_warning_ms, (int, float))
+        or isinstance(queue_delay_warning_ms, bool)
+        or not math.isfinite(queue_delay_warning_ms)
+        or queue_delay_warning_ms < 0
+    ):
+        errors.append("run.queue_delay_warning_ms must be a non-negative number")
     _reject_inline_secrets(config, errors)
 
     if errors:
@@ -165,7 +196,12 @@ def _require_positive_number(config: dict[str, Any], path: str, errors: list[str
     value = get_path(config, path)
     if value is None and not required:
         return
-    if not isinstance(value, (int, float)) or value <= 0:
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+        or value <= 0
+    ):
         errors.append(f"{path} must be a positive number")
 
 

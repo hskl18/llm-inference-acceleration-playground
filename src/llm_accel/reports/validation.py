@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from llm_accel.metrics.optimization_profile import load_optimization_profile
 from llm_accel.metrics.schemas import SCHEMA_VERSION
 
 
@@ -76,6 +77,7 @@ def _validate_optional_artifacts(run_dir: Path, errors: list[str], warnings: lis
         "task_eval.json": _validate_task_eval,
         "quantization_comparison.json": _validate_quantization_comparison,
         "comparison.json": _validate_comparison,
+        "matrix_summary.json": _validate_matrix_summary,
         "vllm_validation.json": _validate_vllm_validation,
         "vllm_benchmark_plan.json": _validate_vllm_plan,
         "speculative_summary.json": _validate_speculative_summary,
@@ -86,6 +88,12 @@ def _validate_optional_artifacts(run_dir: Path, errors: list[str], warnings: lis
         path = run_dir / artifact
         if path.exists():
             validator(path, errors, warnings)
+    profile_path = run_dir / "optimization_profile.json"
+    if profile_path.exists():
+        try:
+            load_optimization_profile(profile_path)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            errors.append(f"optimization_profile.json is invalid: {exc}")
 
 
 def _validate_throughput_summary(path: Path, errors: list[str], warnings: list[str]) -> None:
@@ -105,24 +113,98 @@ def _validate_throughput_summary(path: Path, errors: list[str], warnings: list[s
 
 def _validate_quality_eval(path: Path, errors: list[str], warnings: list[str]) -> None:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    _require_keys(path.name, payload, ["model", "backend", "prompt_count", "passed", "checks", "notes"], errors)
+    _require_keys(path.name, payload, ["schema_version", "model", "backend", "prompt_count", "prompt_set_sha256", "passed", "checks", "notes"], errors)
     _require_list(path.name, payload.get("checks"), "checks", errors)
     _require_list(path.name, payload.get("notes"), "notes", errors)
     if not isinstance(payload.get("passed"), bool):
         errors.append(f"{path.name}.passed must be a boolean")
     if isinstance(payload.get("checks"), list) and payload.get("prompt_count") != len(payload["checks"]):
         errors.append(f"{path.name} prompt_count does not match checks length")
+    outputs_path = path.parent / "quality_outputs.jsonl"
+    if not outputs_path.exists():
+        errors.append("quality evaluation missing quality_outputs.jsonl")
+    else:
+        outputs = _read_mapping_jsonl(outputs_path, errors)
+        if payload.get("prompt_count") != len(outputs):
+            errors.append("quality_outputs.jsonl row count does not match prompt_count")
 
 
 def _validate_task_eval(path: Path, errors: list[str], warnings: list[str]) -> None:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    _require_keys(path.name, payload, ["model", "backend", "task_count", "mean_keyword_score", "passed", "checks", "notes"], errors)
+    _require_keys(
+        path.name,
+        payload,
+        [
+            "schema_version",
+            "model",
+            "backend",
+            "task_set_sha256",
+            "task_count",
+            "passed_count",
+            "failed_count",
+            "mean_score",
+            "passed",
+            "checks",
+            "notes",
+        ],
+        errors,
+    )
     _require_list(path.name, payload.get("checks"), "checks", errors)
     _require_list(path.name, payload.get("notes"), "notes", errors)
     if not isinstance(payload.get("passed"), bool):
         errors.append(f"{path.name}.passed must be a boolean")
     if isinstance(payload.get("checks"), list) and payload.get("task_count") != len(payload["checks"]):
         errors.append(f"{path.name} task_count does not match checks length")
+    if isinstance(payload.get("task_count"), int) and isinstance(payload.get("passed_count"), int) and isinstance(payload.get("failed_count"), int):
+        if payload["passed_count"] + payload["failed_count"] != payload["task_count"]:
+            errors.append(f"{path.name} passed_count plus failed_count does not match task_count")
+    if not isinstance(payload.get("mean_score"), (int, float)) or not 0.0 <= float(payload.get("mean_score", -1)) <= 1.0:
+        errors.append(f"{path.name}.mean_score must be between 0 and 1")
+
+    specs_path = path.parent / "task_specs.jsonl"
+    outputs_path = path.parent / "task_outputs.jsonl"
+    if not specs_path.exists():
+        errors.append("task evaluation missing task_specs.jsonl")
+    if not outputs_path.exists():
+        errors.append("task evaluation missing task_outputs.jsonl")
+    if specs_path.exists() and outputs_path.exists():
+        specs = _read_mapping_jsonl(specs_path, errors)
+        outputs = _read_mapping_jsonl(outputs_path, errors)
+        checks = payload.get("checks", [])
+        task_count = payload.get("task_count")
+        if task_count != len(specs):
+            errors.append("task_specs.jsonl row count does not match task_count")
+        if task_count != len(outputs):
+            errors.append("task_outputs.jsonl row count does not match task_count")
+        if isinstance(checks, list):
+            spec_ids = [row.get("id") for row in specs]
+            output_ids = [row.get("case_id") for row in outputs]
+            check_ids = [row.get("case_id") for row in checks if isinstance(row, dict)]
+            if len(set(spec_ids)) != len(spec_ids):
+                errors.append("task_specs.jsonl ids must be unique")
+            if spec_ids != output_ids or spec_ids != check_ids:
+                errors.append("task spec, output, and summary case ids do not match in order")
+        for row in outputs:
+            for key in ["case_id", "output_index", "output_text", "output_tokens", "ttft_ms", "total_latency_ms", "error"]:
+                if key not in row:
+                    errors.append(f"task_outputs.jsonl row missing {key}")
+
+
+def _read_mapping_jsonl(path: Path, errors: list[str]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError as exc:
+            errors.append(f"{path.name} line {line_no} is invalid JSON: {exc.msg}")
+            continue
+        if not isinstance(payload, dict):
+            errors.append(f"{path.name} line {line_no} must be an object")
+            continue
+        rows.append(payload)
+    return rows
 
 
 def _validate_quantization_comparison(path: Path, errors: list[str], warnings: list[str]) -> None:
@@ -136,15 +218,70 @@ def _validate_quantization_comparison(path: Path, errors: list[str], warnings: l
 
 def _validate_comparison(path: Path, errors: list[str], warnings: list[str]) -> None:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    _require_keys(path.name, payload, ["summary_count", "runs", "comparable", "ranking_allowed", "warnings", "notes"], errors)
+    _require_keys(
+        path.name,
+        payload,
+        [
+            "comparison_schema_version",
+            "summary_count",
+            "runs",
+            "comparable",
+            "ranking_allowed",
+            "blockers",
+            "strata",
+            "warnings",
+            "notes",
+        ],
+        errors,
+    )
     _require_list(path.name, payload.get("runs"), "runs", errors)
     _require_list(path.name, payload.get("warnings"), "warnings", errors)
+    _require_list(path.name, payload.get("blockers"), "blockers", errors)
+    _require_list(path.name, payload.get("strata"), "strata", errors)
     _require_list(path.name, payload.get("notes"), "notes", errors)
     for key in ["comparable", "ranking_allowed"]:
         if not isinstance(payload.get(key), bool):
             errors.append(f"{path.name}.{key} must be a boolean")
     if isinstance(payload.get("runs"), list) and payload.get("summary_count") != len(payload["runs"]):
         errors.append(f"{path.name} summary_count does not match runs length")
+
+
+def _validate_matrix_summary(path: Path, errors: list[str], warnings: list[str]) -> None:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    _require_keys(
+        path.name,
+        payload,
+        [
+            "schema_version",
+            "matrix_name",
+            "planned_run_count",
+            "successful_run_count",
+            "evidence_failed_run_count",
+            "execution_failed_run_count",
+            "pending_run_count",
+            "runs",
+            "quality",
+            "complete",
+            "ranking_allowed",
+        ],
+        errors,
+    )
+    _require_list(path.name, payload.get("runs"), "runs", errors)
+    _require_list(path.name, payload.get("quality"), "quality", errors)
+    runs = payload.get("runs")
+    if isinstance(runs, list) and payload.get("planned_run_count") != len(runs):
+        errors.append(f"{path.name} planned_run_count does not match runs length")
+    if isinstance(runs, list):
+        statuses = [run.get("status") for run in runs if isinstance(run, dict)]
+        expected_counts = {
+            "successful_run_count": statuses.count("succeeded"),
+            "evidence_failed_run_count": statuses.count("evidence_failed"),
+            "execution_failed_run_count": statuses.count("execution_failed"),
+            "pending_run_count": statuses.count("pending") + statuses.count("running"),
+        }
+        for field, expected in expected_counts.items():
+            if payload.get(field) != expected:
+                errors.append(f"{path.name} {field} does not match run statuses")
 
 
 def _validate_vllm_validation(path: Path, errors: list[str], warnings: list[str]) -> None:

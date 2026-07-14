@@ -4,7 +4,7 @@ import hashlib
 import shlex
 from pathlib import Path
 
-from llm_accel.metrics.io import write_json
+from llm_accel.metrics.io import write_json, write_text_atomic
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.serving.vllm import build_vllm_command, optimization_profile_name
 
@@ -19,6 +19,8 @@ def create_vllm_benchmark_plan(
     port: int = 8000,
     dtype: str,
     revision: str,
+    tokenizer: str | None = None,
+    tokenizer_revision: str | None = None,
     hardware_label: str = "REQUIRED_HARDWARE_LABEL",
     quantization: str | None = None,
     max_model_len: int | None = None,
@@ -36,6 +38,8 @@ def create_vllm_benchmark_plan(
         port=port,
         dtype=dtype,
         revision=revision,
+        tokenizer=tokenizer,
+        tokenizer_revision=tokenizer_revision,
         quantization=quantization,
         max_model_len=max_model_len,
         gpu_memory_utilization=gpu_memory_utilization,
@@ -46,6 +50,10 @@ def create_vllm_benchmark_plan(
         speculative_model=speculative_model,
         num_speculative_tokens=num_speculative_tokens,
     )
+    if command.tokenizer_revision is None:
+        raise ValueError(
+            "tokenizer_revision is required when tokenizer is independent from the model"
+        )
     server_command_text = command.shell_command() + "\n"
     server_command_sha256 = hashlib.sha256(server_command_text.encode("utf-8")).hexdigest()
     out_dir = Path(output_dir)
@@ -61,6 +69,8 @@ def create_vllm_benchmark_plan(
         model=model,
         base_url=base_url,
         revision=revision,
+        tokenizer=command.tokenizer,
+        tokenizer_revision=command.tokenizer_revision,
         dtype=command.dtype,
         quantization=quantization,
         max_model_len=max_model_len,
@@ -77,6 +87,8 @@ def create_vllm_benchmark_plan(
         base_url=base_url,
         model=model,
         revision=revision,
+        tokenizer=command.tokenizer,
+        tokenizer_revision=command.tokenizer_revision,
         server_command_sha256=server_command_sha256,
         server_command_path=server_command_path,
         dtype=command.dtype,
@@ -91,6 +103,8 @@ def create_vllm_benchmark_plan(
         base_url=base_url,
         model=model,
         revision=revision,
+        tokenizer=command.tokenizer,
+        tokenizer_revision=command.tokenizer_revision,
         server_command_sha256=server_command_sha256,
         server_command_path=server_command_path,
         dtype=command.dtype,
@@ -103,6 +117,8 @@ def create_vllm_benchmark_plan(
     plan = {
         "model": model,
         "model_revision": revision_value,
+        "tokenizer": command.tokenizer,
+        "tokenizer_revision": command.tokenizer_revision,
         "base_url": base_url if base_url.startswith(("http://localhost", "http://127.0.0.1")) else "redacted",
         "config_path": config_path,
         "server_command": command.to_dict(),
@@ -178,7 +194,7 @@ def create_vllm_benchmark_plan(
         ],
     }
     out_dir.mkdir(parents=True, exist_ok=True)
-    server_command_path.write_text(server_command_text, encoding="utf-8")
+    write_text_atomic(server_command_path, server_command_text)
     write_json(out_dir / "vllm_benchmark_plan.json", plan)
     _write_markdown(out_dir / "vllm_benchmark_plan.md", plan)
     write_run_manifest(
@@ -200,6 +216,8 @@ def _benchmark_command(
     base_url: str,
     model: str,
     revision: str,
+    tokenizer: str | None,
+    tokenizer_revision: str | None,
     server_command_sha256: str,
     server_command_path: Path,
     dtype: str,
@@ -222,6 +240,10 @@ def _benchmark_command(
             model,
             "--model-revision",
             revision,
+            "--tokenizer",
+            str(tokenizer),
+            "--tokenizer-revision",
+            str(tokenizer_revision),
             "--server-command-sha256",
             server_command_sha256,
             "--server-command-file",
@@ -255,6 +277,8 @@ def _validation_command(
     model: str,
     base_url: str,
     revision: str,
+    tokenizer: str | None,
+    tokenizer_revision: str | None,
     dtype: str,
     quantization: str | None,
     max_model_len: int | None,
@@ -280,6 +304,8 @@ def _validation_command(
         dtype,
     ]
     optional_values = [
+        ("--tokenizer", tokenizer),
+        ("--tokenizer-revision", tokenizer_revision),
         ("--quantization", quantization if quantization != "none" else None),
         ("--max-model-len", max_model_len),
         ("--gpu-memory-utilization", gpu_memory_utilization),
@@ -320,6 +346,8 @@ def _write_markdown(path: Path, plan: dict[str, object]) -> None:
             "",
             f"- Model: `{plan['model']}`",
             f"- Model revision: `{plan['model_revision']}`",
+            f"- Tokenizer: `{plan['tokenizer']}`",
+            f"- Tokenizer revision: `{plan['tokenizer_revision']}`",
             f"- Server command SHA-256: `{plan['server_command_sha256']}`",
             f"- Base URL: `{plan['base_url']}`",
             f"- Sweep config: `{plan['config_path']}`",
@@ -336,4 +364,4 @@ def _write_markdown(path: Path, plan: dict[str, object]) -> None:
         ]
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    write_text_atomic(path, text)

@@ -2,7 +2,8 @@
 
 Open source toolkit for measuring LLM inference-serving latency, throughput, KV cache memory, and acceleration tradeoffs.
 
-The project focuses on practical benchmark workflows around OpenAI-compatible serving endpoints. The first backend target is vLLM, while the current implementation includes a deterministic `mock://local` path so contributors can run tests and smoke benchmarks without a GPU.
+The project focuses on practical benchmark workflows around OpenAI-compatible serving endpoints.
+The first backend target is vLLM, while the current implementation includes a deterministic `mock://local` path so contributors can run tests and smoke benchmarks without a GPU.
 
 ## Evidence Status
 
@@ -11,17 +12,20 @@ Current mock runs prove the client, artifact, validation, and reporting workflow
 They do not support latency, throughput, memory, quality, or acceleration claims about vLLM or any model.
 
 The next hardware experiment is fully specified in [the hardware benchmark runbook](docs/hardware_benchmark_runbook.md).
-It collects three or more repetitions for baseline and prefix-cache profiles, records the exact hardware and software environment, and blocks publication when required evidence is absent.
+It collects three or more repetitions for baseline, prefix-cache, chunked-prefill, quantized, and speculative profiles.
+It records the exact hardware and software environment and blocks publication when required evidence is absent.
 
 ## Current Status
 
-This repo now contains the project proposal plus the first implementation slice:
+Version 0.2.0 adds measurement-correct experiment orchestration while preserving the deterministic no-GPU workflow:
 
 - Python package scaffold under `src/llm_accel`
 - `llm-accel` CLI
 - mock latency and throughput benchmark path
 - OpenAI-compatible non-streaming and streaming endpoint client
-- true concurrent measured request execution
+- closed-loop and deterministic open-loop request scheduling
+- scheduled-arrival, actual-dispatch, client-queue, and end-to-end request timing
+- optional spawned multiprocess load generation
 - YAML/JSON sweep config loading
 - synthetic and fixed-prompt benchmark workloads
 - raw JSONL, summary JSON, and summary Markdown outputs
@@ -33,9 +37,14 @@ This repo now contains the project proposal plus the first implementation slice:
 - quantization comparison workflow
 - fixed-prompt quality sanity checks for quantization comparisons
 - standalone lightweight quality sanity evaluation
-- keyword-rubric task quality evaluation
+- exact-match, regex, Draft 2020-12 JSON Schema, long-context, and keyword task validators
+- separate task-specification, raw-output, and generated-summary quality artifacts
 - run manifests for generated artifacts
 - run validation and cross-run comparison reports
+- versioned structured optimization profiles with exact command and environment fingerprints
+- randomized, resumable five-profile matrices with three or more repetitions
+- strict and explicitly stratified comparison modes
+- single-run hardware claim audits and matrix-level performance-ranking audits
 - endpoint health checks through `doctor`
 - backend adapter profiles
 - packaged example configs for installed CLI users
@@ -43,7 +52,9 @@ This repo now contains the project proposal plus the first implementation slice:
 - speculative decoding acceptance-curve reports
 - unit and integration tests
 
-OpenAI-compatible endpoint calls are implemented with the Python standard library. Streaming mode records observed TTFT from server-sent events. Non-streaming mode conservatively records TTFT as total request latency.
+OpenAI-compatible endpoint calls are implemented with the Python standard library.
+Streaming mode records observed TTFT from server-sent events.
+Non-streaming mode conservatively records TTFT as total request latency.
 
 ## Install
 
@@ -109,6 +120,37 @@ llm-accel bench sweep --config configs/benchmark_prompts.yaml
 llm-accel bench sweep --config configs/benchmark_prefix_cache.yaml
 ```
 
+Run the deterministic five-profile mock matrix:
+
+```bash
+llm-accel bench matrix \
+  --config configs/optimization_matrix_mock.yaml \
+  --output-dir results/runs/mock-optimization-matrix
+```
+
+The matrix covers baseline, prefix cache, chunked prefill, quantized, and speculative treatment profiles in randomized order for three repetitions.
+It checkpoints `matrix_state.json` after every cell and resumes only when the config digest and existing run artifacts remain valid.
+Mock matrix output proves orchestration and evidence gates only.
+It is never model, backend, or hardware performance evidence.
+Real matrices require one explicit, distinct, already-running endpoint URL per profile.
+The tool does not provision hardware, download models, or silently restart serving processes.
+
+Use open-loop arrivals to expose client backlog under offered load:
+
+```bash
+llm-accel bench throughput \
+  --base-url http://localhost:8000/v1 \
+  --backend vllm \
+  --request-schedule open-loop \
+  --request-rate-rps 20 \
+  --concurrency 8 \
+  --client-processes 2 \
+  --queue-delay-warning-ms 10 \
+  --output-dir results/runs/open-loop-example
+```
+
+Closed-loop runs remain useful for bounded-concurrency inspection, but their summaries warn that response-dependent arrivals are susceptible to coordinated omission.
+
 Run a throughput-focused benchmark:
 
 ```bash
@@ -157,7 +199,7 @@ llm-accel eval sanity \
   --output-dir results/runs/eval-smoke
 ```
 
-Run a keyword-rubric task evaluation:
+Run a validator-based task evaluation:
 
 ```bash
 llm-accel eval task \
@@ -173,14 +215,18 @@ Validate and compare generated runs:
 llm-accel report generate --run-dir results/runs/readme-smoke
 llm-accel report validate --run-dir results/runs/readme-smoke
 llm-accel report claim-audit --run-dir results/runs/readme-smoke
+llm-accel report ranking-audit --matrix-dir results/runs/mock-optimization-matrix
 llm-accel report compare \
   --summary results/runs/run-a/summary.json \
   --summary results/runs/run-b/summary.json \
   --output-dir results/runs/comparison
 ```
 
-Comparison reports include `warnings` and `ranking_allowed`; relative throughput is not treated as a ranking when runs are too small or not comparable.
+Comparison reports include structured blockers, invariant strata, and `ranking_allowed`.
+Optimization settings are treatment dimensions, while model, tokenizer, prompt, schedule, client, quality-gate, and environment evidence remain comparison invariants.
+Relative throughput is computed from the declared baseline aggregate rather than input order.
 The claim audit intentionally rejects this mock smoke run because it is not hardware evidence.
+The ranking audit also rejects the mock matrix, closed-loop coordinated-omission risk, client saturation, missing repetitions, missing quality deltas, and any corrupted source evidence.
 
 Inspect backend capability metadata:
 

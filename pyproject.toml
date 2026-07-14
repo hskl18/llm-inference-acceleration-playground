@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-inference-acceleration-playground"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Open source toolkit for measuring LLM inference-serving latency, throughput, KV cache memory, and acceleration tradeoffs."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,7 +25,7 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = []
+dependencies = ["jsonschema>=4.23", "tokenizers>=0.20"]
 
 [project.urls]
 Homepage = "https://github.com/hskl18/llm-inference-acceleration-playground"
@@ -44,6 +44,9 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 llm_accel = ["example_configs/*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "llm_accel._version.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -33,6 +33,8 @@ def summarize_requests(records: Iterable[RequestMetrics], elapsed_seconds: float
     latencies = [item.total_latency_ms for item in completed]
     ttfts = [item.ttft_ms for item in completed]
     tpots = [item.tpot_ms for item in completed]
+    queue_delays = [item.queue_delay_ms for item in items]
+    end_to_end_latencies = [item.end_to_end_latency_ms for item in completed]
     output_tokens = sum(item.output_tokens for item in completed)
     total_wall_ms = sum(latencies)
     max_latency_ms = max(latencies, default=0.0)
@@ -64,6 +66,19 @@ def summarize_requests(records: Iterable[RequestMetrics], elapsed_seconds: float
             "p50": percentile(tpots, 50),
             "p95": percentile(tpots, 95),
             "p99": percentile(tpots, 99),
+        },
+        "queue_delay_ms": {
+            "mean": mean(queue_delays) if queue_delays else 0.0,
+            "p50": percentile(queue_delays, 50),
+            "p95": percentile(queue_delays, 95),
+            "p99": percentile(queue_delays, 99),
+            "max": max(queue_delays, default=0.0),
+        },
+        "end_to_end_latency_ms": {
+            "mean": mean(end_to_end_latencies) if end_to_end_latencies else 0.0,
+            "p50": percentile(end_to_end_latencies, 50),
+            "p95": percentile(end_to_end_latencies, 95),
+            "p99": percentile(end_to_end_latencies, 99),
         },
         "throughput": {
             "output_tokens_per_second": output_tokens / effective_elapsed_s if effective_elapsed_s else 0.0,

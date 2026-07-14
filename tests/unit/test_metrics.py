@@ -48,3 +48,45 @@ def test_summarize_requests_uses_measured_elapsed_seconds() -> None:
 
     assert throughput["measured_elapsed_seconds"] == 2.0
     assert throughput["output_tokens_per_second"] == 10.0
+
+
+def test_summarize_requests_includes_client_queue_and_end_to_end_latency() -> None:
+    records = [
+        RequestMetrics(
+            "req-1",
+            "m",
+            "mock",
+            10,
+            5,
+            1,
+            1.0,
+            2.0,
+            9.0,
+            scheduled_offset_ms=10.0,
+            dispatch_offset_ms=15.0,
+            queue_delay_ms=5.0,
+            end_to_end_latency_ms=14.0,
+        ),
+        RequestMetrics(
+            "req-2",
+            "m",
+            "mock",
+            10,
+            5,
+            1,
+            1.0,
+            2.0,
+            9.0,
+            scheduled_offset_ms=20.0,
+            dispatch_offset_ms=35.0,
+            queue_delay_ms=15.0,
+            end_to_end_latency_ms=24.0,
+        ),
+    ]
+
+    summary = summarize_requests(records)
+
+    assert summary["queue_delay_ms"]["mean"] == 10.0
+    assert summary["queue_delay_ms"]["p95"] == 14.5
+    assert summary["queue_delay_ms"]["max"] == 15.0
+    assert summary["end_to_end_latency_ms"]["p50"] == 19.0

@@ -39,6 +39,11 @@ def run_sweep(config_path: str | Path, output_dir: str | Path | None = None) -> 
     hardware_label = str(get_path(config, "run.hardware_label", "local"))
     optimization_profile = str(get_path(config, "run.optimization_profile", "baseline"))
     server_command_sha256 = get_path(config, "run.server_command_sha256")
+    request_schedule = str(get_path(config, "workload.request_schedule", "closed-loop"))
+    request_rate_rps_value = get_path(config, "workload.request_rate_rps")
+    request_rate_rps = float(request_rate_rps_value) if request_rate_rps_value is not None else None
+    client_processes = int(get_path(config, "run.client_processes", 1))
+    queue_delay_warning_ms = float(get_path(config, "run.queue_delay_warning_ms", 10.0))
     seed = int(get_path(config, "workload.seed", 42))
     prompts_path = get_path(config, "workload.prompts_path")
     if isinstance(prompts_path, str):
@@ -76,6 +81,10 @@ def run_sweep(config_path: str | Path, output_dir: str | Path | None = None) -> 
                     server_command_sha256=(
                         str(server_command_sha256) if server_command_sha256 is not None else None
                     ),
+                    request_schedule=request_schedule,
+                    request_rate_rps=request_rate_rps,
+                    client_processes=client_processes,
+                    queue_delay_warning_ms=queue_delay_warning_ms,
                 )
                 runs.append(
                     {

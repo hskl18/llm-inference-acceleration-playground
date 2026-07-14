@@ -1,8 +1,9 @@
 # Research Optimization Plan
 
-Last reviewed: 2026-06-17.
+Last reviewed: 2026-07-14.
 
-This plan summarizes the next optimization directions for the project after reviewing current inference-serving documentation and recent benchmark literature. The project should continue to separate measured claims from runnable workflows: anything requiring GPU hardware should ship as a validated runbook or benchmark configuration until real hardware results are available.
+This plan summarizes the next optimization directions for the project after reviewing current inference-serving documentation and recent benchmark literature.
+The project should continue to separate measured claims from runnable workflows: anything requiring GPU hardware should ship as a validated runbook or benchmark configuration until real hardware results are available.
 
 ## Priority 1: Benchmark Prefix Reuse and Long-Prefix Workloads
 
@@ -42,11 +43,13 @@ Current coverage:
 - `llm-accel vllm command` generates a basic vLLM startup command.
 - `backend list/profile` now includes common OpenAI-compatible serving engines and optimization metadata.
 - vLLM command, validation, and plan artifacts support prefix caching, chunked prefill, batching limits, and speculative decoding startup flags.
+- Matrix cells write versioned structured optimization profiles with exact command, model, tokenizer, treatment, batching, limit, and environment evidence.
+- Strict and stratified comparisons separate treatment differences from experiment invariants.
 
 Next implementation:
 
-- Add a backend-agnostic `optimization_profile` metadata field to benchmark summaries.
-- Add comparison checks so runs with different optimization profiles are not ranked as equivalent.
+- Add backend-specific semantic command parsers beyond the current strict vLLM publication audit.
+- Add operator-attestation adapters that bind platform launch records to command artifacts.
 
 References:
 
@@ -65,12 +68,15 @@ Current coverage:
 
 - Request failures, timeouts, measured elapsed time, TTFT, TPOT, and throughput are recorded.
 - The release gate validates small benchmark workflows without GPU hardware.
+- Closed-loop and fixed-cadence open-loop request schedules are available.
+- Raw rows record scheduled arrival, actual dispatch, queue delay, and end-to-end latency.
+- Optional spawned multiprocess load generation records canonical process and worker settings.
+- Client saturation and coordinated omission warnings block matrix ranking evidence.
 
 Next implementation:
 
-- Add a benchmark warning when concurrency exceeds a conservative single-process threshold.
-- Add optional multi-process load generation for high-concurrency endpoint benchmarking.
-- Record client process count, worker count, and client-side queueing estimates in run metadata.
+- Add configurable stochastic arrival distributions while preserving deterministic replay artifacts.
+- Add independent load-generator host clock calibration for multi-host clients.
 
 Reference:
 
@@ -85,15 +91,16 @@ Why it matters:
 
 Current coverage:
 
-- Fixed-prompt sanity evaluation exists.
-- Keyword-rubric task evaluation exists.
+- Fixed-prompt sanity evaluation preserves verbatim raw outputs separately from summaries.
+- Keyword, exact-match, regex, Draft 2020-12 JSON Schema, and long-context validators are available.
+- Task definitions, raw outputs, and aggregate summaries remain separate artifacts.
 - Quantization comparison records quality sanity checks.
+- Matrices run the same task suite for every profile and disclose score deltas from baseline.
 
 Next implementation:
 
-- Add JSONL task fixtures for long-context QA, instruction following, and structured-output checks.
-- Add optional exact-match / regex / JSON-schema validators.
-- Include quality summary deltas in comparison reports.
+- Add larger source-controlled long-context fixtures with redistribution-safe content.
+- Add domain-specific semantic evaluators only when their datasets and scoring contracts can be versioned.
 
 References:
 
@@ -112,12 +119,13 @@ Current coverage:
 - `vllm validate` records blockers.
 - `report validate` checks generated run directories.
 - `docs/release.md` defines benchmark-claim rules.
+- `report claim-audit` reconstructs single-run evidence from raw traces.
+- `report ranking-audit` follows matrix repetitions, profiles, quality evidence, dispatch evidence, and comparison strata.
 
 Next implementation:
 
-- Add a `claim audit` command that checks a run directory for publishable hardware-claim evidence.
-- Add backend-version and server-flag capture to every benchmark run when available.
-- Add a hardware-backed result template that is explicitly excluded from the default repo until real measurements are collected.
+- Run the first authorized real GPU matrix and retain the complete source bundle.
+- Add a hardware-result template only after real evidence passes both audit levels.
 
 References:
 

@@ -52,4 +52,8 @@ def _request_metrics_from_row(row: dict[str, object]) -> RequestMetrics:
         error=str(row["error"]) if row.get("error") is not None else None,
         started_offset_ms=float(row.get("started_offset_ms", 0.0)),
         completed_offset_ms=float(row.get("completed_offset_ms", 0.0)),
+        scheduled_offset_ms=float(row.get("scheduled_offset_ms", row.get("started_offset_ms", 0.0))),
+        dispatch_offset_ms=float(row.get("dispatch_offset_ms", row.get("started_offset_ms", 0.0))),
+        queue_delay_ms=float(row.get("queue_delay_ms", 0.0)),
+        end_to_end_latency_ms=float(row.get("end_to_end_latency_ms", row.get("total_latency_ms", 0.0))),
     )

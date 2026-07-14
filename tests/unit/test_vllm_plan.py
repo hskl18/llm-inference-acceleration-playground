@@ -1,5 +1,7 @@
 import shlex
 
+import pytest
+
 from llm_accel.serving.vllm_plan import create_vllm_benchmark_plan
 
 
@@ -12,6 +14,8 @@ def test_create_vllm_benchmark_plan_writes_runbook(tmp_path) -> None:
         base_url="http://localhost:8000/v1",
         output_dir=tmp_path,
         revision=REVISION,
+        tokenizer="test-tokenizer",
+        tokenizer_revision="b" * 40,
         hardware_label="NVIDIA A100 80GB",
         dtype="float16",
         enable_prefix_caching=True,
@@ -25,6 +29,8 @@ def test_create_vllm_benchmark_plan_writes_runbook(tmp_path) -> None:
     assert "results/runs/vllm-throughput/throughput_summary.json" in plan["required_artifacts"]
     assert "--enable-prefix-caching" in plan["server_command"]["argv"]
     assert REVISION in plan["server_command"]["argv"]
+    assert plan["tokenizer"] == "test-tokenizer"
+    assert plan["tokenizer_revision"] == "b" * 40
     assert f"--model-revision {REVISION}" in next(
         step["command"] for step in plan["steps"] if step["name"] == "run_throughput_benchmark"
     )
@@ -40,6 +46,8 @@ def test_create_vllm_benchmark_plan_writes_runbook(tmp_path) -> None:
         step["command"] for step in plan["steps"] if step["name"] == "validate_environment"
     )
     assert f"--revision {REVISION}" in validation_command
+    assert "--tokenizer test-tokenizer" in validation_command
+    assert f"--tokenizer-revision {'b' * 40}" in validation_command
     assert "--dtype float16" in validation_command
     assert "--enable-prefix-caching" in validation_command
     assert plan["steps"][0]["name"] == "start_vllm_server"
@@ -49,3 +57,15 @@ def test_create_vllm_benchmark_plan_writes_runbook(tmp_path) -> None:
     assert (tmp_path / "vllm_benchmark_plan.json").exists()
     assert (tmp_path / "vllm_benchmark_plan.md").exists()
     assert (tmp_path / "server_command.txt").exists()
+
+
+def test_vllm_plan_requires_revision_for_distinct_tokenizer(tmp_path) -> None:
+    with pytest.raises(ValueError, match="tokenizer_revision"):
+        create_vllm_benchmark_plan(
+            model="test-model",
+            base_url="http://localhost:8000/v1",
+            output_dir=tmp_path,
+            revision=REVISION,
+            tokenizer="independent/tokenizer",
+            dtype="float16",
+        )

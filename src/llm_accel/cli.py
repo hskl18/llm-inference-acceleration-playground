@@ -8,6 +8,7 @@ from pathlib import Path
 
 from llm_accel import __version__
 from llm_accel.benchmarks.latency import run_latency_benchmark
+from llm_accel.benchmarks.matrix import run_matrix
 from llm_accel.benchmarks.sweep import run_sweep
 from llm_accel.benchmarks.throughput import run_throughput_benchmark
 from llm_accel.config.loader import ConfigError
@@ -22,6 +23,7 @@ from llm_accel.reports.comparison import compare_run_summaries
 from llm_accel.reports.claim_audit import audit_hardware_claim
 from llm_accel.reports.markdown import write_summary_markdown
 from llm_accel.reports.regenerate import regenerate_run_report
+from llm_accel.reports.ranking_audit import audit_performance_ranking
 from llm_accel.reports.validation import validate_run_dir
 from llm_accel.serving.capabilities import get_capability, list_capabilities
 from llm_accel.serving.health import check_endpoint_health
@@ -52,9 +54,25 @@ def _add_bench_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--prompts", default="", help="Optional plain-text or JSONL prompt file for fixed-prompt benchmarks")
     parser.add_argument("--no-stream", action="store_true", help="Use non-streaming endpoint calls")
     parser.add_argument("--model-revision", help="Exact model revision or immutable artifact identifier")
+    parser.add_argument("--tokenizer", help="Exact tokenizer name or artifact identifier")
+    parser.add_argument("--tokenizer-revision", help="Exact immutable tokenizer revision")
     parser.add_argument("--optimization-profile", default="baseline", help="Named server configuration under test")
     parser.add_argument("--server-command-sha256", help="SHA-256 of the exact serving command record")
     parser.add_argument("--server-command-file", help="Exact serving command record to copy into the run")
+    parser.add_argument(
+        "--request-schedule",
+        choices=["closed-loop", "open-loop"],
+        default="closed-loop",
+        help="Closed-loop concurrency or open-loop scheduled arrivals",
+    )
+    parser.add_argument("--request-rate-rps", type=float, help="Target arrivals per second for open-loop scheduling")
+    parser.add_argument("--client-processes", type=int, default=1, help="Load-generator process count")
+    parser.add_argument(
+        "--queue-delay-warning-ms",
+        type=float,
+        default=10.0,
+        help="Warn when client queue delay p95 exceeds this threshold",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -82,6 +100,11 @@ def build_parser() -> argparse.ArgumentParser:
     sweep.add_argument("--config", required=True)
     sweep.add_argument("--output-dir")
     sweep.set_defaults(func=cmd_bench_sweep)
+    matrix = bench_sub.add_parser("matrix", help="Run a randomized, resumable optimization matrix")
+    matrix.add_argument("--config", required=True)
+    matrix.add_argument("--output-dir")
+    matrix.add_argument("--resume", action="store_true")
+    matrix.set_defaults(func=cmd_bench_matrix)
 
     report = subparsers.add_parser("report", help="Generate reports from existing summaries")
     report_sub = report.add_subparsers(dest="report_command", required=True)
@@ -96,10 +119,18 @@ def build_parser() -> argparse.ArgumentParser:
     compare_report = report_sub.add_parser("compare", help="Compare two or more summary.json files")
     compare_report.add_argument("--summary", action="append", required=True)
     compare_report.add_argument("--output-dir", required=True)
+    compare_report.add_argument("--baseline-profile", default="baseline")
+    compare_report.add_argument("--mode", choices=["strict", "stratified"], default="strict")
     compare_report.set_defaults(func=cmd_report_compare)
     claim_audit = report_sub.add_parser("claim-audit", help="Audit whether one run can support a hardware claim")
     claim_audit.add_argument("--run-dir", required=True)
     claim_audit.set_defaults(func=cmd_report_claim_audit)
+    ranking_audit = report_sub.add_parser(
+        "ranking-audit",
+        help="Audit whether a matrix can support a performance ranking",
+    )
+    ranking_audit.add_argument("--matrix-dir", required=True)
+    ranking_audit.set_defaults(func=cmd_report_ranking_audit)
 
     examples = subparsers.add_parser("examples", help="List or write packaged example configs")
     examples_sub = examples.add_subparsers(dest="examples_command", required=True)
@@ -145,6 +176,8 @@ def build_parser() -> argparse.ArgumentParser:
     vllm_command.add_argument("--port", type=int, default=8000)
     vllm_command.add_argument("--dtype", default="auto")
     vllm_command.add_argument("--revision")
+    vllm_command.add_argument("--tokenizer")
+    vllm_command.add_argument("--tokenizer-revision")
     vllm_command.add_argument("--quantization")
     vllm_command.add_argument("--max-model-len", type=int)
     vllm_command.add_argument("--gpu-memory-utilization", type=float)
@@ -158,6 +191,8 @@ def build_parser() -> argparse.ArgumentParser:
     vllm_validate.add_argument("--port", type=int, default=8000)
     vllm_validate.add_argument("--dtype", default="auto")
     vllm_validate.add_argument("--revision")
+    vllm_validate.add_argument("--tokenizer")
+    vllm_validate.add_argument("--tokenizer-revision")
     vllm_validate.add_argument("--quantization")
     vllm_validate.add_argument("--max-model-len", type=int)
     vllm_validate.add_argument("--gpu-memory-utilization", type=float)
@@ -174,6 +209,8 @@ def build_parser() -> argparse.ArgumentParser:
     vllm_plan.add_argument("--port", type=int, default=8000)
     vllm_plan.add_argument("--dtype", required=True)
     vllm_plan.add_argument("--revision", required=True)
+    vllm_plan.add_argument("--tokenizer")
+    vllm_plan.add_argument("--tokenizer-revision")
     vllm_plan.add_argument("--hardware-label", required=True)
     vllm_plan.add_argument("--quantization")
     vllm_plan.add_argument("--max-model-len", type=int)
@@ -209,10 +246,12 @@ def build_parser() -> argparse.ArgumentParser:
     sanity.add_argument("--max-tokens", type=int, default=64)
     sanity.add_argument("--stream", action="store_true")
     sanity.set_defaults(func=cmd_eval_sanity)
-    task = eval_sub.add_parser("task", help="Run keyword-rubric task evaluation")
+    task = eval_sub.add_parser("task", help="Run validator-based task evaluation")
     task.add_argument("--base-url", default="mock://local")
     task.add_argument("--model", default="mock-model")
     task.add_argument("--backend", default="mock")
+    task.add_argument("--tokenizer")
+    task.add_argument("--tokenizer-revision")
     task.add_argument("--tasks", required=True)
     task.add_argument("--output-dir", default="results/runs/task-eval")
     task.add_argument("--max-tokens", type=int, default=64)
@@ -282,9 +321,15 @@ def cmd_bench_latency(args: argparse.Namespace) -> int:
         api_kind=args.api_kind,
         prompt_texts=prompt_texts,
         model_revision=args.model_revision,
+        tokenizer=args.tokenizer,
+        tokenizer_revision=args.tokenizer_revision,
         optimization_profile=args.optimization_profile,
         server_command_sha256=args.server_command_sha256,
         server_command_file=args.server_command_file,
+        request_schedule=args.request_schedule,
+        request_rate_rps=args.request_rate_rps,
+        client_processes=args.client_processes,
+        queue_delay_warning_ms=args.queue_delay_warning_ms,
     )
     print(json.dumps({"output_dir": output_dir, "metrics": summary["metrics"]}, indent=2, sort_keys=True))
     return 0
@@ -311,9 +356,15 @@ def cmd_bench_throughput(args: argparse.Namespace) -> int:
         api_kind=args.api_kind,
         prompt_texts=prompt_texts,
         model_revision=args.model_revision,
+        tokenizer=args.tokenizer,
+        tokenizer_revision=args.tokenizer_revision,
         optimization_profile=args.optimization_profile,
         server_command_sha256=args.server_command_sha256,
         server_command_file=args.server_command_file,
+        request_schedule=args.request_schedule,
+        request_rate_rps=args.request_rate_rps,
+        client_processes=args.client_processes,
+        queue_delay_warning_ms=args.queue_delay_warning_ms,
     )
     print(json.dumps({"output_dir": output_dir, "throughput": summary["metrics"]["throughput"]}, indent=2, sort_keys=True))
     return 0
@@ -328,6 +379,12 @@ def cmd_bench_sweep(args: argparse.Namespace) -> int:
     aggregate = run_sweep(args.config, args.output_dir)
     print(json.dumps({"output_dir": aggregate["output_dir"], "run_count": aggregate["run_count"]}, indent=2, sort_keys=True))
     return 0
+
+
+def cmd_bench_matrix(args: argparse.Namespace) -> int:
+    result = run_matrix(args.config, args.output_dir, resume=args.resume)
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0 if result["execution_failed_run_count"] == 0 and result["evidence_failed_run_count"] == 0 else 1
 
 
 def cmd_report_generate(args: argparse.Namespace) -> int:
@@ -350,7 +407,12 @@ def cmd_report_validate(args: argparse.Namespace) -> int:
 
 
 def cmd_report_compare(args: argparse.Namespace) -> int:
-    result = compare_run_summaries(args.summary, args.output_dir)
+    result = compare_run_summaries(
+        args.summary,
+        args.output_dir,
+        baseline_profile=args.baseline_profile,
+        comparison_mode=args.mode,
+    )
     print(json.dumps({"output_dir": args.output_dir, "summary_count": result["summary_count"]}, indent=2, sort_keys=True))
     return 0
 
@@ -359,6 +421,12 @@ def cmd_report_claim_audit(args: argparse.Namespace) -> int:
     result = audit_hardware_claim(args.run_dir)
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result["publishable_hardware_claim"] else 1
+
+
+def cmd_report_ranking_audit(args: argparse.Namespace) -> int:
+    result = audit_performance_ranking(args.matrix_dir)
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0 if result["publishable_performance_ranking"] else 1
 
 
 def cmd_examples_list(args: argparse.Namespace) -> int:
@@ -441,6 +509,8 @@ def cmd_vllm_command(args: argparse.Namespace) -> int:
         port=args.port,
         dtype=args.dtype,
         revision=args.revision,
+        tokenizer=args.tokenizer,
+        tokenizer_revision=args.tokenizer_revision,
         quantization=args.quantization,
         max_model_len=args.max_model_len,
         gpu_memory_utilization=args.gpu_memory_utilization,
@@ -467,6 +537,8 @@ def cmd_vllm_validate(args: argparse.Namespace) -> int:
         port=args.port,
         dtype=args.dtype,
         revision=args.revision,
+        tokenizer=args.tokenizer,
+        tokenizer_revision=args.tokenizer_revision,
         quantization=args.quantization,
         max_model_len=args.max_model_len,
         gpu_memory_utilization=args.gpu_memory_utilization,
@@ -503,6 +575,8 @@ def cmd_vllm_plan(args: argparse.Namespace) -> int:
         port=args.port,
         dtype=args.dtype,
         revision=args.revision,
+        tokenizer=args.tokenizer,
+        tokenizer_revision=args.tokenizer_revision,
         hardware_label=args.hardware_label,
         quantization=args.quantization,
         max_model_len=args.max_model_len,
@@ -558,6 +632,8 @@ def cmd_eval_task(args: argparse.Namespace) -> int:
         base_url=args.base_url,
         model=args.model,
         backend=args.backend,
+        tokenizer=args.tokenizer,
+        tokenizer_revision=args.tokenizer_revision,
         task_specs=load_task_specs(args.tasks),
         output_dir=args.output_dir,
         max_tokens=args.max_tokens,
@@ -568,7 +644,7 @@ def cmd_eval_task(args: argparse.Namespace) -> int:
             {
                 "output_dir": args.output_dir,
                 "passed": report["passed"],
-                "mean_keyword_score": report["mean_keyword_score"],
+                "mean_score": report["mean_score"],
             },
             indent=2,
             sort_keys=True,

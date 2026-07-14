@@ -1,0 +1,58 @@
+matrix:
+  name: mock-optimization-matrix
+  repetitions: 3
+  seed: 42
+  baseline_profile: baseline
+
+run:
+  output_dir: results/runs/mock-optimization-matrix
+  hardware_label: local-mock
+  warmup_requests: 1
+  measured_requests: 8
+  timeout_seconds: 30
+  client_processes: 1
+
+endpoint:
+  base_url: mock://local
+  backend: mock
+  api_kind: chat
+  stream: true
+
+model:
+  name: mock-model
+  revision: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  tokenizer: mock-tokenizer
+  tokenizer_revision: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  dtype: float16
+  quantization: none
+
+workload:
+  mode: synthetic
+  request_schedule: closed-loop
+  input_tokens: [32]
+  output_tokens: [8]
+  concurrency: [2]
+  seed: 42
+
+quality:
+  tasks_path: task_eval_small.jsonl
+  max_tokens: 64
+  max_allowed_score_drop: 0.0
+
+profiles:
+  baseline:
+    server_command: mock-server --model mock-model --profile baseline
+  prefix-cache:
+    server_command: mock-server --model mock-model --profile prefix-cache --enable-prefix-caching
+    prefix_cache: true
+  chunked-prefill:
+    server_command: mock-server --model mock-model --profile chunked-prefill --enable-chunked-prefill
+    chunked_prefill: true
+  quantized:
+    server_command: mock-server --model mock-model --profile quantized --quantization int8
+    quantization: int8
+  speculative:
+    server_command: mock-server --model mock-model --profile speculative --speculative-model mock-draft
+    speculative_model: mock-draft
+    speculative_model_revision: cccccccccccccccccccccccccccccccccccccccc
+    num_speculative_tokens: 4

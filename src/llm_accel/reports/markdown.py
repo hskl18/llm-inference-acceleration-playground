@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from llm_accel.metrics.io import write_text_atomic
+
 
 def render_summary_markdown(summary: dict[str, Any]) -> str:
     metadata = summary.get("metadata", {})
@@ -10,6 +12,8 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
     latency = metrics.get("latency_ms", {})
     ttft = metrics.get("ttft_ms", {})
     tpot = metrics.get("tpot_ms", {})
+    queue_delay = metrics.get("queue_delay_ms", {})
+    end_to_end = metrics.get("end_to_end_latency_ms", {})
     throughput = metrics.get("throughput", {})
     memory = summary.get("memory", {})
     warnings = summary.get("warnings", [])
@@ -34,6 +38,11 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
         f"- Shared prefix fingerprint: `{metadata.get('shared_prefix_fingerprint') or 'n/a'}`",
         f"- Measured requests: `{metadata.get('request_count', 'unknown')}`",
         f"- Warmup requests: `{metadata.get('warmup_count', 'unknown')}`",
+        f"- Request schedule: `{metadata.get('request_schedule', 'closed-loop')}`",
+        f"- Request rate: `{metadata.get('request_rate_rps') if metadata.get('request_rate_rps') is not None else 'n/a'}` requests/sec",
+        f"- Client processes: `{metadata.get('client_processes', 1)}`",
+        f"- Client workers: `{metadata.get('client_workers', metadata.get('concurrency', 1))}`",
+        f"- Queue delay warning threshold: `{metadata.get('queue_delay_warning_ms', 10.0)}` ms",
         f"- Hardware label: `{metadata.get('hardware_label', 'unknown')}`",
         f"- Optimization profile: `{metadata.get('optimization_profile', 'baseline')}`",
         f"- Server command SHA-256: `{metadata.get('server_command_sha256') or 'unavailable'}`",
@@ -62,6 +71,12 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
         f"| TPOT p50 | {tpot.get('p50', 0.0):.3f} ms |",
         f"| TPOT p95 | {tpot.get('p95', 0.0):.3f} ms |",
         f"| TPOT p99 | {tpot.get('p99', 0.0):.3f} ms |",
+        f"| Queue delay p50 | {queue_delay.get('p50', 0.0):.3f} ms |",
+        f"| Queue delay p95 | {queue_delay.get('p95', 0.0):.3f} ms |",
+        f"| Queue delay p99 | {queue_delay.get('p99', 0.0):.3f} ms |",
+        f"| End-to-end latency p50 | {end_to_end.get('p50', 0.0):.3f} ms |",
+        f"| End-to-end latency p95 | {end_to_end.get('p95', 0.0):.3f} ms |",
+        f"| End-to-end latency p99 | {end_to_end.get('p99', 0.0):.3f} ms |",
         f"| Output tokens/sec | {throughput.get('output_tokens_per_second', 0.0):.3f} |",
         f"| Requests/sec | {throughput.get('requests_per_second', 0.0):.3f} |",
         "",
@@ -90,8 +105,7 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
 
 
 def write_summary_markdown(path: Path, summary: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_summary_markdown(summary), encoding="utf-8")
+    write_text_atomic(path, render_summary_markdown(summary))
 
 
 def render_aggregate_markdown(aggregate: dict[str, object]) -> str:
@@ -125,5 +139,4 @@ def render_aggregate_markdown(aggregate: dict[str, object]) -> str:
 
 
 def write_aggregate_markdown(path: Path, aggregate: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_aggregate_markdown(aggregate), encoding="utf-8")
+    write_text_atomic(path, render_aggregate_markdown(aggregate))
