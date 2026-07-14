@@ -3,6 +3,8 @@ from __future__ import annotations
 from importlib import resources
 from pathlib import Path
 
+from llm_accel.metrics.io import write_text_atomic
+
 
 EXAMPLE_FILENAMES = (
     "benchmark_small.yaml",
@@ -30,7 +32,7 @@ def write_example_files(output_dir: str | Path, *, overwrite: bool = False) -> l
         if target.exists() and not overwrite:
             raise FileExistsError(f"{target} already exists; pass --overwrite to replace it")
         source = resources.files("llm_accel").joinpath("example_configs", filename)
-        target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+        write_text_atomic(target, source.read_text(encoding="utf-8"))
         written.append(str(target))
 
     return written

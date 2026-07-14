@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from llm_accel.metrics.io import write_json
+from llm_accel.metrics.io import write_json, write_text_atomic
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.speculative_decoding.vanilla import run_toy_speculative
 
@@ -101,7 +101,7 @@ def _write_markdown(path: Path, payload: dict[str, object]) -> None:
             "",
         ]
     )
-    path.write_text(text, encoding="utf-8")
+    write_text_atomic(path, text)
 
 
 def _baseline_interpretation(estimated_speedup: float) -> str:
@@ -133,4 +133,4 @@ def _write_baseline_markdown(path: Path, comparison: dict[str, object]) -> None:
             "",
         ]
     )
-    path.write_text(text, encoding="utf-8")
+    write_text_atomic(path, text)

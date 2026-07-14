@@ -4,7 +4,7 @@ import hashlib
 import shlex
 from pathlib import Path
 
-from llm_accel.metrics.io import write_json
+from llm_accel.metrics.io import write_json, write_text_atomic
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.serving.vllm import build_vllm_command, optimization_profile_name
 
@@ -194,7 +194,7 @@ def create_vllm_benchmark_plan(
         ],
     }
     out_dir.mkdir(parents=True, exist_ok=True)
-    server_command_path.write_text(server_command_text, encoding="utf-8")
+    write_text_atomic(server_command_path, server_command_text)
     write_json(out_dir / "vllm_benchmark_plan.json", plan)
     _write_markdown(out_dir / "vllm_benchmark_plan.md", plan)
     write_run_manifest(
@@ -364,4 +364,4 @@ def _write_markdown(path: Path, plan: dict[str, object]) -> None:
         ]
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    write_text_atomic(path, text)

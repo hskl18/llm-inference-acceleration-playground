@@ -348,6 +348,7 @@ def test_fresh_matrix_atomically_replaces_evidence_leaf_symlinks(tmp_path: Path)
         run_dir / "raw_requests.csv",
         run_dir / "summary.json",
         run_dir / "summary.md",
+        run_dir / "throughput_summary.md",
         run_dir / "plots" / "latency.svg",
         run_dir / "manifest.json",
         output_dir / "comparison" / "comparison.md",

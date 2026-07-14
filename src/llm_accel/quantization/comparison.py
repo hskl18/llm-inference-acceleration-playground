@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from llm_accel.benchmarks.latency import run_latency_benchmark
-from llm_accel.metrics.io import write_json
+from llm_accel.metrics.io import write_json, write_text_atomic
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.quantization.sanity import DEFAULT_SANITY_PROMPTS, run_quality_sanity_check
 from llm_accel.serving.capabilities import get_capability
@@ -162,4 +162,4 @@ def _write_markdown(path: Path, report: dict[str, object]) -> None:
         ]
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    write_text_atomic(path, text)

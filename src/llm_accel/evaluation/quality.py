@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from llm_accel.evaluation.io import write_mapping_jsonl
-from llm_accel.metrics.io import write_json
+from llm_accel.metrics.io import write_json, write_text_atomic
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.metrics.schemas import SCHEMA_VERSION
 from llm_accel.serving.openai_client import OpenAICompatibleClient
@@ -139,4 +139,4 @@ def _write_markdown(path: Path, report: dict[str, object]) -> None:
         ]
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    write_text_atomic(path, text)

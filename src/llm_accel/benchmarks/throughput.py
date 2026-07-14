@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from llm_accel.benchmarks.latency import run_latency_benchmark
-from llm_accel.metrics.io import write_json
+from llm_accel.metrics.io import write_json, write_text_atomic
 from llm_accel.metrics.manifest import write_run_manifest
 
 
@@ -86,4 +86,4 @@ def _write_throughput_markdown(path: Path, payload: dict[str, object]) -> None:
     if isinstance(warnings, list) and warnings:
         lines.extend(["", "## Warnings", ""])
         lines.extend(f"- {warning}" for warning in warnings)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_text_atomic(path, "\n".join(lines) + "\n")
