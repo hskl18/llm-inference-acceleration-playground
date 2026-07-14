@@ -436,6 +436,7 @@ def _audit_run_evidence(
         profile = load_bound_optimization_profile(
             run_dir,
             metadata.get("optimization_profile_spec"),
+            require_artifact=True,
         )
         if profile is None:
             raise ValueError("optimization profile is missing")
@@ -448,6 +449,15 @@ def _audit_run_evidence(
         )
     else:
         evidence["treatment_fingerprint"] = profile.treatment_fingerprint
+        if planned is not None and profile.server_command_sha256 != planned.get(
+            "server_command_sha256"
+        ):
+            _add(
+                blockers,
+                "planned_server_command_mismatch",
+                f"Run {run_id} server command does not match matrix_plan.json.",
+                run_id=run_id,
+            )
         command_path = run_dir / "server_command.txt"
         if not command_path.exists():
             _add(blockers, "missing_server_command", f"Run {run_id} lacks server_command.txt.", run_id=run_id)
@@ -685,7 +695,27 @@ def _audit_quality(
                 profile=profile,
             )
             continue
-        evidence_file = root / evidence_path
+        relative_evidence = Path(evidence_path)
+        if relative_evidence.is_absolute():
+            _add(
+                blockers,
+                "invalid_quality_evidence_path",
+                f"Profile {profile!r} quality evidence path must be relative to the matrix root.",
+                profile=profile,
+            )
+            continue
+        resolved_root = root.resolve()
+        evidence_file = (resolved_root / relative_evidence).resolve()
+        try:
+            evidence_file.relative_to(resolved_root)
+        except ValueError:
+            _add(
+                blockers,
+                "invalid_quality_evidence_path",
+                f"Profile {profile!r} quality evidence path escapes the matrix root.",
+                profile=profile,
+            )
+            continue
         evidence_dir = evidence_file.parent
         try:
             validation = validate_run_dir(evidence_dir)

@@ -14,6 +14,7 @@ from llm_accel.metrics.optimization_profile import (
     load_bound_optimization_profile,
 )
 from llm_accel.metrics.schemas import RequestMetrics
+from llm_accel.metrics.token_counting import is_local_tokenizer_reference
 from llm_accel.reports.validation import validate_run_dir
 from llm_accel.serving.vllm import normalize_vllm_dtype, optimization_profile_name
 
@@ -80,6 +81,9 @@ def audit_hardware_claim(run_dir: str | Path) -> dict[str, object]:
     tokenizer_revision = str(metadata.get("tokenizer_revision") or "")
     if tokenizer_revision and not re.fullmatch(r"[0-9a-f]{40,64}", tokenizer_revision):
         blockers.append("tokenizer_revision must be a full immutable hexadecimal revision")
+    tokenizer = str(metadata.get("tokenizer") or "")
+    if tokenizer and is_local_tokenizer_reference(tokenizer):
+        blockers.append("local tokenizer paths are mutable and cannot support hardware claims")
     server_command_sha256 = str(metadata.get("server_command_sha256") or "")
     if server_command_sha256 and not re.fullmatch(r"[0-9a-f]{64}", server_command_sha256):
         blockers.append("server_command_sha256 must be a lowercase 64-character SHA-256 digest")
@@ -89,10 +93,10 @@ def audit_hardware_claim(run_dir: str | Path) -> dict[str, object]:
     if (
         metadata.get("backend") == "vllm"
         and metadata.get("token_count_method")
-        != "tokenizers.encode(add_special_tokens=false)"
+        != "prompt=server_usage;output=tokenizers.encode(add_special_tokens=false)"
     ):
         blockers.append(
-            "vLLM hardware claims require tokenizers.encode(add_special_tokens=false) model-token counts"
+            "vLLM hardware claims require server prompt usage and resolved-tokenizer output counts"
         )
     if metadata.get("dtype") in {None, "", "unknown", "auto"}:
         blockers.append("an exact dtype must be recorded")
@@ -159,7 +163,11 @@ def audit_hardware_claim(run_dir: str | Path) -> dict[str, object]:
                 blockers.append(f"metrics.throughput.{key} must be finite and positive")
 
     _validate_server_command(path, metadata, blockers)
-    if (path / "optimization_profile.json").exists():
+    if (
+        (path / "optimization_profile.json").exists()
+        or metadata.get("optimization_profile_spec") is not None
+        or metadata.get("optimization_profile_fingerprint") is not None
+    ):
         _validate_optimization_profile(path, metadata, blockers)
     _validate_quality_execution_identity(metadata, blockers)
 
@@ -314,6 +322,7 @@ def _validate_optimization_profile(
         profile = load_bound_optimization_profile(
             path,
             metadata.get("optimization_profile_spec"),
+            require_artifact=True,
         )
         if profile is None:
             raise ValueError("optimization profile is missing")

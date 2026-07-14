@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from llm_accel.benchmarks import matrix as matrix_module
 from llm_accel.benchmarks.matrix import run_matrix
 from llm_accel.metrics.execution_identity import endpoint_sha256
 from llm_accel.reports.comparison import compare_run_summaries
@@ -298,6 +299,52 @@ def test_fresh_matrix_replaces_stale_profile_command_artifacts(tmp_path: Path) -
     assert first_run_command.read_text(encoding="utf-8") == expected
 
 
+def test_fresh_matrix_replaces_leaf_command_symlink_without_touching_target(tmp_path: Path) -> None:
+    output_dir = tmp_path / "matrix"
+    command_dir = output_dir / "profile_commands"
+    command_dir.mkdir(parents=True)
+    victim = output_dir / "victim.txt"
+    victim.write_text("preserve me\n", encoding="utf-8")
+    baseline_command = command_dir / "baseline.txt"
+    baseline_command.symlink_to(victim)
+
+    run_matrix(ROOT / "configs" / "optimization_matrix_mock.yaml", output_dir)
+
+    assert victim.read_text(encoding="utf-8") == "preserve me\n"
+    assert not baseline_command.is_symlink()
+    assert baseline_command.read_text(encoding="utf-8") == (
+        "mock-server --model mock-model --profile baseline\n"
+    )
+
+
+def test_matrix_rejects_command_mutation_after_plan_creation(monkeypatch, tmp_path: Path) -> None:
+    original = matrix_module._run_planned_cell
+    attacked = False
+
+    def mutate_then_run(*args, **kwargs):
+        nonlocal attacked
+        planned = args[3]
+        if not attacked and planned["profile"] == "baseline":
+            attacked = True
+            Path(planned["server_command_file"]).write_text(
+                "mock-server --model wrong --profile attacker\n",
+                encoding="utf-8",
+            )
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(matrix_module, "_run_planned_cell", mutate_then_run)
+
+    result = run_matrix(
+        ROOT / "configs" / "optimization_matrix_mock.yaml",
+        tmp_path / "matrix",
+    )
+
+    assert result["execution_failed_run_count"] == 3
+    failed = [run for run in result["runs"] if run["status"] == "execution_failed"]
+    assert {run["profile"] for run in failed} == {"baseline"}
+    assert all("planned server command SHA-256" in run["error"] for run in failed)
+
+
 def test_matrix_comparison_evidence_is_portable_after_directory_copy(tmp_path: Path) -> None:
     original = tmp_path / "original"
     copied = tmp_path / "copied"
@@ -353,6 +400,44 @@ def test_profile_artifact_mismatch_changes_claim_and_ranking_audits(tmp_path: Pa
     changed_codes = _audit_codes(output_dir)
     assert "invalid_optimization_profile" in changed_codes
     assert changed_codes != original_codes
+
+
+def test_matrix_audits_require_canonical_profile_artifact(tmp_path: Path) -> None:
+    output_dir = tmp_path / "matrix"
+    run_matrix(ROOT / "configs" / "optimization_matrix_mock.yaml", output_dir)
+    run_dir = output_dir / "baseline" / "repeat-01" / "c2-in32-out8"
+    (run_dir / "optimization_profile.json").unlink()
+    manifest_path = run_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["artifacts"].remove("optimization_profile.json")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    claim = audit_hardware_claim(run_dir)
+
+    assert any("optimization_profile.json is required" in blocker for blocker in claim["blockers"])
+    assert "invalid_optimization_profile" in _audit_codes(output_dir)
+
+
+def test_ranking_audit_rejects_quality_evidence_outside_matrix_root(tmp_path: Path) -> None:
+    output_dir = tmp_path / "matrix"
+    outside_dir = tmp_path / "outside-quality"
+    run_matrix(ROOT / "configs" / "optimization_matrix_mock.yaml", output_dir)
+    shutil.copytree(output_dir / "quality" / "baseline", outside_dir)
+    outside_path = "../outside-quality/task_eval.json"
+    matrix_path = output_dir / "matrix_summary.json"
+    matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
+    baseline_quality = next(item for item in matrix["quality"] if item["profile"] == "baseline")
+    baseline_quality["evidence_path"] = outside_path
+    matrix_path.write_text(json.dumps(matrix), encoding="utf-8")
+    for state in matrix["runs"]:
+        if state["profile"] != "baseline":
+            continue
+        summary_path = output_dir / state["run_id"] / "summary.json"
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        summary["metadata"]["quality_evidence_path"] = outside_path
+        summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    assert "invalid_quality_evidence_path" in _audit_codes(output_dir)
 
 
 def test_matrix_rejects_profile_names_that_can_escape_output_root(tmp_path: Path) -> None:

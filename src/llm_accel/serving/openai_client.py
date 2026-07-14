@@ -76,6 +76,7 @@ class OpenAICompatibleClient:
         tokenizer: str | None = None,
         tokenizer_revision: str | None = None,
         token_counter: TokenCounter | None = None,
+        defer_token_count: bool = False,
     ) -> None:
         if api_kind not in {"chat", "completion"}:
             raise ValueError("api_kind must be 'chat' or 'completion'")
@@ -84,6 +85,7 @@ class OpenAICompatibleClient:
         self.backend = backend
         self.request_timeout_seconds = request_timeout_seconds
         self.api_kind = api_kind
+        self.defer_token_count = defer_token_count
         self.token_counter: TokenCounter | None
         if token_counter is not None:
             self.token_counter = token_counter
@@ -232,6 +234,24 @@ class OpenAICompatibleClient:
         usage: object,
     ) -> tuple[int, int, str]:
         if self.token_counter is not None:
+            prompt_tokens = usage.get("prompt_tokens") if isinstance(usage, dict) else None
+            if self.defer_token_count:
+                completion_tokens = usage.get("completion_tokens") if isinstance(usage, dict) else None
+                if not isinstance(prompt_tokens, int):
+                    raise ValueError(
+                        "vLLM benchmark responses must include server prompt token usage"
+                    )
+                return (
+                    completion_tokens if isinstance(completion_tokens, int) else 0,
+                    prompt_tokens,
+                    f"prompt=server_usage;output={self.token_counter.method}",
+                )
+            if isinstance(prompt_tokens, int):
+                return (
+                    self.token_counter.count(output_text),
+                    prompt_tokens,
+                    f"prompt=server_usage;output={self.token_counter.method}",
+                )
             return (
                 self.token_counter.count(output_text),
                 self.token_counter.count(prompt),

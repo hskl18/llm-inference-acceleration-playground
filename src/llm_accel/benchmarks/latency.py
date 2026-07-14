@@ -5,10 +5,9 @@ import math
 import multiprocessing
 import os
 import queue
-import shutil
 import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,11 +15,11 @@ from llm_accel import __version__
 from llm_accel.metrics.aggregation import summarize_requests
 from llm_accel.metrics.environment import collect_environment_metadata, environment_fingerprint
 from llm_accel.metrics.execution_identity import displayed_base_url, endpoint_sha256
-from llm_accel.metrics.io import write_json, write_jsonl, write_request_csv
+from llm_accel.metrics.io import write_bytes_atomic, write_json, write_jsonl, write_request_csv
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.metrics.memory import sample_gpu_memory, summarize_memory
 from llm_accel.metrics.schemas import RequestMetrics, RunMetadata
-from llm_accel.metrics.token_counting import load_token_counter
+from llm_accel.metrics.token_counting import is_local_tokenizer_reference, load_token_counter
 from llm_accel.reports.markdown import write_summary_markdown
 from llm_accel.reports.plots import write_latency_svg
 from llm_accel.serving.openai_client import OpenAICompatibleClient
@@ -59,6 +58,12 @@ class _ClientConfig:
     tokenizer_revision: str | None
 
 
+@dataclass(frozen=True)
+class _MeasuredRequest:
+    metrics: RequestMetrics
+    output_text: str
+
+
 def _count_prompt_tokens(prompt: str, config: _ClientConfig) -> int:
     if config.backend == "vllm" and config.tokenizer and config.tokenizer_revision:
         return load_token_counter(config.tokenizer, config.tokenizer_revision).count(prompt)
@@ -86,7 +91,7 @@ def _execute_request(
     config: _ClientConfig,
     scheduled_offset_ms: float | None = None,
     dispatch_offsets: dict[int, float] | None = None,
-) -> RequestMetrics:
+) -> _MeasuredRequest:
     scheduled = spec.scheduled_offset_ms if scheduled_offset_ms is None else scheduled_offset_ms
     dispatch = max((time.perf_counter() - origin) * 1000, 0.0)
     if dispatch_offsets is not None:
@@ -99,20 +104,25 @@ def _execute_request(
         api_kind=config.api_kind,
         tokenizer=config.tokenizer,
         tokenizer_revision=config.tokenizer_revision,
+        defer_token_count=config.backend == "vllm",
     )
     try:
         result = client.complete(spec.prompt, config.output_tokens, spec.index, stream=config.stream)
-        completed = max((time.perf_counter() - origin) * 1000, dispatch)
-        return RequestMetrics(
+        completed = max(dispatch + result.total_latency_ms, dispatch)
+        metrics = RequestMetrics(
             request_id=f"req-{spec.index + 1:06d}",
             model=config.model,
             backend=config.backend,
-            input_tokens=result.input_tokens or _count_prompt_tokens(spec.prompt, config),
+            input_tokens=(
+                result.input_tokens
+                if result.input_tokens is not None
+                else _count_prompt_tokens(spec.prompt, config)
+            ),
             output_tokens=result.output_tokens,
             concurrency=config.concurrency,
             ttft_ms=result.ttft_ms,
             tpot_ms=result.tpot_ms,
-            total_latency_ms=max(completed - dispatch, 0.0),
+            total_latency_ms=result.total_latency_ms,
             token_count_method=result.token_count_method,
             completed=True,
             error=None,
@@ -123,13 +133,14 @@ def _execute_request(
             queue_delay_ms=max(dispatch - scheduled, 0.0),
             end_to_end_latency_ms=max(completed - scheduled, 0.0),
         )
+        return _MeasuredRequest(metrics=metrics, output_text=result.output_text)
     except Exception as exc:
         completed = max((time.perf_counter() - origin) * 1000, dispatch)
-        return RequestMetrics(
+        metrics = RequestMetrics(
             request_id=f"req-{spec.index + 1:06d}",
             model=config.model,
             backend=config.backend,
-            input_tokens=_count_prompt_tokens(spec.prompt, config),
+            input_tokens=(0 if config.backend == "vllm" else _count_prompt_tokens(spec.prompt, config)),
             output_tokens=0,
             concurrency=config.concurrency,
             ttft_ms=0.0,
@@ -145,6 +156,7 @@ def _execute_request(
             queue_delay_ms=max(dispatch - scheduled, 0.0),
             end_to_end_latency_ms=max(completed - scheduled, 0.0),
         )
+        return _MeasuredRequest(metrics=metrics, output_text="")
 
 
 def _client_failure_record(
@@ -154,16 +166,16 @@ def _client_failure_record(
     config: _ClientConfig,
     scheduled_offset_ms: float | None = None,
     error: str,
-) -> RequestMetrics:
+) -> _MeasuredRequest:
     scheduled = spec.scheduled_offset_ms if scheduled_offset_ms is None else scheduled_offset_ms
     now_offset = max((time.perf_counter() - origin) * 1000, scheduled)
     dispatch = now_offset
     completed = max(now_offset, dispatch)
-    return RequestMetrics(
+    metrics = RequestMetrics(
         request_id=f"req-{spec.index + 1:06d}",
         model=config.model,
         backend=config.backend,
-        input_tokens=_count_prompt_tokens(spec.prompt, config),
+        input_tokens=(0 if config.backend == "vllm" else _count_prompt_tokens(spec.prompt, config)),
         output_tokens=0,
         concurrency=config.concurrency,
         ttft_ms=0.0,
@@ -179,6 +191,7 @@ def _client_failure_record(
         queue_delay_ms=max(dispatch - scheduled, 0.0),
         end_to_end_latency_ms=max(completed - scheduled, 0.0),
     )
+    return _MeasuredRequest(metrics=metrics, output_text="")
 
 
 def _run_closed_loop_worker(
@@ -186,8 +199,8 @@ def _run_closed_loop_worker(
     *,
     origin: float,
     config: _ClientConfig,
-) -> list[RequestMetrics]:
-    records: list[RequestMetrics] = []
+) -> list[_MeasuredRequest]:
+    records: list[_MeasuredRequest] = []
     _sleep_until(origin)
     for spec in requests:
         scheduled = max((time.perf_counter() - origin) * 1000, 0.0)
@@ -209,7 +222,7 @@ def _run_request_group(
     request_schedule: str,
     origin: float | None,
     config: _ClientConfig,
-) -> list[RequestMetrics]:
+) -> list[_MeasuredRequest]:
     if origin is None:
         origin = _PROCESS_ORIGIN
     if origin is None:
@@ -217,23 +230,23 @@ def _run_request_group(
     if not requests:
         return []
     executor = ThreadPoolExecutor(max_workers=worker_count)
-    records: list[RequestMetrics] = []
+    records: list[_MeasuredRequest] = []
     if request_schedule == "closed-loop":
         buckets = [[] for _ in range(worker_count)]
         for index, spec in enumerate(requests):
             buckets[index % worker_count].append(spec)
-        futures = [
+        closed_loop_futures = [
             executor.submit(_run_closed_loop_worker, bucket, origin=origin, config=config)
             for bucket in buckets
             if bucket
         ]
-        for future in as_completed(futures):
-            records.extend(future.result())
+        for closed_loop_future in as_completed(closed_loop_futures):
+            records.extend(closed_loop_future.result())
     else:
-        futures = []
+        request_futures = []
         for spec in sorted(requests, key=lambda item: item.scheduled_offset_ms):
             _sleep_until(origin + spec.scheduled_offset_ms / 1000)
-            futures.append(
+            request_futures.append(
                 executor.submit(
                     _execute_request,
                     spec,
@@ -241,8 +254,8 @@ def _run_request_group(
                     config=config,
                 )
             )
-        for future in as_completed(futures):
-            records.append(future.result())
+        for request_future in as_completed(request_futures):
+            records.append(request_future.result())
     executor.shutdown(wait=True, cancel_futures=False)
     return records
 
@@ -265,7 +278,7 @@ def _run_measured_requests(
     request_rate_rps: float | None,
     client_processes: int,
     config: _ClientConfig,
-) -> list[RequestMetrics]:
+) -> list[_MeasuredRequest]:
     interval_ms = 1000 / request_rate_rps if request_schedule == "open-loop" and request_rate_rps else 0.0
     requests = [
         _RequestSpec(index=index, prompt=prompt, scheduled_offset_ms=index * interval_ms)
@@ -287,7 +300,7 @@ def _run_measured_requests(
             config=config,
         )
 
-    records: list[RequestMetrics] = []
+    records: list[_MeasuredRequest] = []
     context = multiprocessing.get_context("spawn")
     ready_queue = context.Queue()
     start_event = context.Event()
@@ -332,6 +345,38 @@ def _run_measured_requests(
     finally:
         start_event.set()
         executor.shutdown(wait=True, cancel_futures=False)
+    return records
+
+
+def _finalize_token_counts(
+    measured: list[_MeasuredRequest],
+    config: _ClientConfig,
+) -> list[RequestMetrics]:
+    if config.backend != "vllm":
+        return [item.metrics for item in measured]
+    if config.tokenizer is None or config.tokenizer_revision is None:
+        raise ValueError("vLLM benchmarks require tokenizer and tokenizer_revision")
+    counter = load_token_counter(config.tokenizer, config.tokenizer_revision)
+    method = f"prompt=server_usage;output={counter.method}"
+    records: list[RequestMetrics] = []
+    for item in measured:
+        metrics = item.metrics
+        if metrics.completed:
+            output_tokens = counter.count(item.output_text)
+            tpot_ms = 0.0
+            if output_tokens > 1:
+                tpot_ms = max(metrics.total_latency_ms - metrics.ttft_ms, 0.0) / (
+                    output_tokens - 1
+                )
+            metrics = replace(
+                metrics,
+                output_tokens=output_tokens,
+                tpot_ms=tpot_ms,
+                token_count_method=method,
+            )
+        else:
+            metrics = replace(metrics, token_count_method=method)
+        records.append(metrics)
     return records
 
 
@@ -405,6 +450,10 @@ def run_latency_benchmark(
         raise ValueError("timeout_seconds must be finite and positive")
     if not math.isfinite(queue_delay_warning_ms) or queue_delay_warning_ms < 0:
         raise ValueError("queue_delay_warning_ms must be non-negative")
+    if backend == "vllm" and tokenizer is not None and is_local_tokenizer_reference(tokenizer):
+        raise ValueError(
+            "local tokenizer paths are mutable and cannot be used for vLLM hardware evidence"
+        )
 
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -415,9 +464,8 @@ def run_latency_benchmark(
         if server_command_sha256 is not None and computed_sha256 != server_command_sha256:
             raise ValueError("server command file does not match server_command_sha256")
         server_command_sha256 = computed_sha256
-        destination = (out_dir / "server_command.txt").resolve()
-        if source_command != destination:
-            shutil.copyfile(source_command, destination)
+        destination = out_dir.resolve() / "server_command.txt"
+        write_bytes_atomic(destination, command_bytes)
     client = OpenAICompatibleClient(
         base_url=base_url,
         model=model,
@@ -448,12 +496,11 @@ def run_latency_benchmark(
         if tokenizer is None or tokenizer_revision is None:
             raise ValueError("vLLM benchmarks require tokenizer and tokenizer_revision")
         token_counter = load_token_counter(tokenizer, tokenizer_revision)
-        prompt_token_counts = [token_counter.count(prompt) for prompt in prompts]
-        token_count_method = token_counter.method
+        prompt_token_counts: list[int] = []
+        token_count_method = f"prompt=server_usage;output={token_counter.method}"
     else:
         prompt_token_counts = [estimate_prompt_tokens(prompt) for prompt in prompts]
         token_count_method = "mock_synthetic" if effective_backend == "mock" else "whitespace_estimate"
-    metadata_input_tokens = round(sum(prompt_token_counts) / len(prompt_token_counts))
     backend_version = detect_backend_version(effective_backend)
     client_configuration = {
         "request_schedule": request_schedule,
@@ -477,15 +524,27 @@ def run_latency_benchmark(
         tokenizer=tokenizer,
         tokenizer_revision=tokenizer_revision,
     )
-    records = _run_measured_requests(
+    measured = _run_measured_requests(
         prompts=prompts,
         request_schedule=request_schedule,
         request_rate_rps=request_rate_rps,
         client_processes=client_processes,
         config=client_config,
     )
+    records = _finalize_token_counts(measured, client_config)
 
     records.sort(key=lambda record: record.request_id)
+    completed_input_tokens = [record.input_tokens for record in records if record.completed]
+    if completed_input_tokens:
+        metadata_input_tokens = round(
+            sum(completed_input_tokens) / len(completed_input_tokens)
+        )
+    else:
+        metadata_input_tokens = (
+            round(sum(prompt_token_counts) / len(prompt_token_counts))
+            if prompt_token_counts
+            else input_tokens
+        )
     measured_elapsed_seconds = measured_span_seconds(records)
     memory_after = sample_gpu_memory()
     resolved_config = {

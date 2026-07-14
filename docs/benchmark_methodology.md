@@ -16,8 +16,11 @@ Primary metrics:
 - output tokens/sec
 - requests/sec
 
-vLLM runs resolve the declared tokenizer at its immutable revision before warmup and count prompts plus final generated text with `encode(add_special_tokens=False)`.
+vLLM runs use the server-reported prompt token count so chat-template and server-added tokens are included.
+They join the final generated text and count output tokens with the declared tokenizer at its immutable revision using `encode(add_special_tokens=False)`.
 Streaming responses are joined before the final tokenizer count, so token boundaries that span chunks remain correct.
+Output tokenization happens after all endpoint measurements finish, so tokenizer execution time cannot inflate latency, delay closed-loop dispatch, or reduce measured throughput.
+Mutable local tokenizer paths are excluded from hardware evidence because an immutable revision cannot bind their content.
 Whitespace estimates remain explicit for generic compatibility runs and cannot satisfy the vLLM hardware-claim gate.
 - p50, p95, p99 latency
 - failed request count

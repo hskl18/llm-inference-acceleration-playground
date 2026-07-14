@@ -5,6 +5,9 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import pytest
+from tokenizers import Tokenizer, models, pre_tokenizers
+
 from llm_accel.benchmarks.latency import run_latency_benchmark
 from llm_accel.serving.openai_client import OpenAICompatibleClient
 
@@ -42,6 +45,10 @@ class _OpenAIHandler(BaseHTTPRequestHandler):
             else:
                 self.wfile.write(
                     f'data: {{"choices":[{{"delta":{{"content":{json.dumps(chunks[1])}}}}}]}}\n\n'.encode()
+                )
+            if payload.get("stream_options") == {"include_usage": True}:
+                self.wfile.write(
+                    b'data: {"choices":[],"usage":{"prompt_tokens":17,"completion_tokens":4}}\n\n'
                 )
             self.wfile.write(b"data: [DONE]\n\n")
             self.wfile.flush()
@@ -125,9 +132,11 @@ def test_vllm_streaming_counts_final_text_with_resolved_tokenizer() -> None:
         server.shutdown()
 
     assert result.output_text == "你好世界"
-    assert result.input_tokens == 2
+    assert result.input_tokens == 17
     assert result.output_tokens == 4
-    assert result.token_count_method == "tokenizers.encode(add_special_tokens=false)"
+    assert result.token_count_method == (
+        "prompt=server_usage;output=tokenizers.encode(add_special_tokens=false)"
+    )
 
 
 def test_vllm_benchmark_binds_tokenizer_counts_and_method(monkeypatch, tmp_path) -> None:
@@ -164,11 +173,88 @@ def test_vllm_benchmark_binds_tokenizer_counts_and_method(monkeypatch, tmp_path)
         server.shutdown()
 
     row = json.loads((tmp_path / "raw_requests.jsonl").read_text(encoding="utf-8"))
-    assert row["input_tokens"] == 2
+    assert row["input_tokens"] == 17
     assert row["output_tokens"] == 4
-    assert row["token_count_method"] == "tokenizers.encode(add_special_tokens=false)"
-    assert summary["metadata"]["token_count_method"] == "tokenizers.encode(add_special_tokens=false)"
+    assert row["token_count_method"] == (
+        "prompt=server_usage;output=tokenizers.encode(add_special_tokens=false)"
+    )
+    assert summary["metadata"]["token_count_method"] == (
+        "prompt=server_usage;output=tokenizers.encode(add_special_tokens=false)"
+    )
     assert summary["metrics"]["output_tokens"] == 4
+
+
+def test_vllm_benchmark_excludes_deferred_tokenization_from_measurement(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    class SlowCharacterTokenCounter:
+        method = "tokenizers.encode(add_special_tokens=false)"
+
+        def count(self, text: str) -> int:
+            time.sleep(0.15)
+            return len(text)
+
+    monkeypatch.setattr(
+        "llm_accel.benchmarks.latency.load_token_counter",
+        lambda tokenizer, revision: SlowCharacterTokenCounter(),
+    )
+    monkeypatch.setattr(
+        "llm_accel.serving.openai_client.load_token_counter",
+        lambda tokenizer, revision: SlowCharacterTokenCounter(),
+    )
+    server, base_url = _start_server()
+    try:
+        summary = run_latency_benchmark(
+            base_url=base_url,
+            model="mock",
+            backend="vllm",
+            tokenizer="resolved-tokenizer",
+            tokenizer_revision="b" * 40,
+            concurrency=1,
+            input_tokens=2,
+            output_tokens=8,
+            output_dir=tmp_path,
+            request_count=2,
+            prompt_texts=["测试"],
+        )
+    finally:
+        server.shutdown()
+
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "raw_requests.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    measured = summary["metrics"]["throughput"]["measured_elapsed_seconds"]
+    assert measured < 0.1
+    assert max(row["total_latency_ms"] for row in rows) < 100.0
+    assert rows[1]["dispatch_offset_ms"] - rows[0]["completed_offset_ms"] < 50.0
+
+
+def test_vllm_benchmark_rejects_mutable_local_tokenizer_evidence(tmp_path) -> None:
+    tokenizer = Tokenizer(models.WordLevel({"[UNK]": 0}, unk_token="[UNK]"))
+    tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
+    tokenizer_path = tmp_path / "tokenizer.json"
+    tokenizer.save(str(tokenizer_path))
+
+    server, base_url = _start_server()
+    try:
+        with pytest.raises(ValueError, match="local tokenizer"):
+            run_latency_benchmark(
+                base_url=base_url,
+                model="mock",
+                backend="vllm",
+                tokenizer=str(tokenizer_path),
+                tokenizer_revision="b" * 40,
+                concurrency=1,
+                input_tokens=2,
+                output_tokens=8,
+                output_dir=tmp_path / "run",
+                request_count=1,
+                prompt_texts=["测试"],
+            )
+    finally:
+        server.shutdown()
 
 
 def test_openai_client_completion_endpoint_non_streaming() -> None:

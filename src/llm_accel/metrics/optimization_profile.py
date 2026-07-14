@@ -278,8 +278,12 @@ def load_optimization_profile(path: str | Path) -> OptimizationProfile:
 def load_bound_optimization_profile(
     run_dir: str | Path,
     inline: object,
+    *,
+    require_artifact: bool = False,
 ) -> OptimizationProfile | None:
     artifact_path = Path(run_dir) / OPTIMIZATION_PROFILE_ARTIFACT
+    if require_artifact and not artifact_path.is_file():
+        raise FileNotFoundError("optimization_profile.json is required")
     artifact_profile = load_optimization_profile(artifact_path) if artifact_path.exists() else None
     inline_profile = optimization_profile_from_dict(inline) if isinstance(inline, dict) else None
     if artifact_profile is not None and inline_profile is not None:

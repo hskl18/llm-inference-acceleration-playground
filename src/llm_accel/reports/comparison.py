@@ -228,11 +228,22 @@ def _load_profile(
     if inline is None and isinstance(metadata.get("optimization_profile"), dict):
         inline = metadata.get("optimization_profile")
     try:
-        profile = load_bound_optimization_profile(summary_path.parent, inline)
+        profile = load_bound_optimization_profile(
+            summary_path.parent,
+            inline,
+            require_artifact=bool(
+                metadata.get("matrix_name")
+                or metadata.get("optimization_profile_fingerprint")
+            ),
+        )
     except OptimizationProfileMismatchError as exc:
         blockers.append(_blocker("optimization_profile_mismatch", str(exc)))
         try:
-            profile = load_bound_optimization_profile(summary_path.parent, None)
+            profile = load_bound_optimization_profile(
+                summary_path.parent,
+                None,
+                require_artifact=True,
+            )
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
             return None
     except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:

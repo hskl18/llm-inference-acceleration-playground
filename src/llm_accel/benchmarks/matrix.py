@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import random
 import re
 from itertools import product
@@ -312,6 +313,13 @@ def _build_plan(
                 ),
                 base_url=str(profile.get("base_url", get_path(config, "endpoint.base_url"))),
             )
+            command_path = _materialize_command(
+                config_file,
+                base_output,
+                profile_name,
+                profile,
+            )
+            command_sha256 = hashlib.sha256(Path(command_path).read_bytes()).hexdigest()
             for cell_index, (input_tokens, output_tokens, concurrency) in enumerate(cells, start=1):
                 cell_name = f"c{int(concurrency)}-in{int(input_tokens)}-out{int(output_tokens)}"
                 run_id = f"{profile_name}/repeat-{repetition:02d}/{cell_name}"
@@ -330,12 +338,8 @@ def _build_plan(
                         "output_tokens": int(output_tokens),
                         "concurrency": int(concurrency),
                         "execution_identity": profile_identity,
-                        "server_command_file": _materialize_command(
-                            config_file,
-                            base_output,
-                            profile_name,
-                            profile,
-                        ),
+                        "server_command_file": command_path,
+                        "server_command_sha256": command_sha256,
                     }
                 )
                 plan_index += 1
@@ -371,7 +375,11 @@ def _run_planned_cell(
     quantization = str(profile_config.get("quantization", "none"))
     run_dir = _contained_path(base_output, str(planned["run_id"]))
     command_path = Path(str(planned["server_command_file"]))
-    command_text = command_path.read_text(encoding="utf-8")
+    command_bytes = command_path.read_bytes()
+    command_sha256 = hashlib.sha256(command_bytes).hexdigest()
+    if command_sha256 != planned.get("server_command_sha256"):
+        raise ValueError("profile command does not match planned server command SHA-256")
+    command_text = command_bytes.decode("utf-8")
     prompt_path = get_path(config, "workload.prompts_path")
     prompt_texts = None
     if isinstance(prompt_path, str):
@@ -402,6 +410,7 @@ def _run_planned_cell(
         tokenizer_revision=tokenizer_revision,
         optimization_profile=profile_name,
         server_command_file=command_path,
+        server_command_sha256=command_sha256,
         request_schedule=str(get_path(config, "workload.request_schedule", "closed-loop")),
         request_rate_rps=_optional_float(get_path(config, "workload.request_rate_rps")),
         client_processes=int(get_path(config, "run.client_processes", 1)),
@@ -500,7 +509,12 @@ def _materialize_command(
 ) -> str:
     command_dir = _contained_path(base_output, "profile_commands")
     command_dir.mkdir(parents=True, exist_ok=True)
-    destination = _contained_path(base_output, "profile_commands", f"{profile_name}.txt")
+    destination = _contained_path(
+        base_output,
+        "profile_commands",
+        f"{profile_name}.txt",
+        allow_leaf_symlink=True,
+    )
     command_file = profile.get("server_command_file")
     if isinstance(command_file, str):
         source = Path(command_file)
@@ -623,7 +637,11 @@ def _valid_existing_run(
         return False
     command_sha256 = hashlib.sha256(command_path.read_bytes()).hexdigest()
     planned_command_sha256 = hashlib.sha256(planned_command_path.read_bytes()).hexdigest()
-    if command_sha256 != planned_command_sha256 or command_sha256 != profile.server_command_sha256:
+    if (
+        command_sha256 != planned_command_sha256
+        or command_sha256 != profile.server_command_sha256
+        or command_sha256 != planned.get("server_command_sha256")
+    ):
         return False
     if metrics.get("request_count") != len(rows):
         return False
@@ -878,13 +896,22 @@ def _resolve_profile_tokenizer(
     return tokenizer, revision
 
 
-def _contained_path(root: Path, *parts: str) -> Path:
+def _contained_path(
+    root: Path,
+    *parts: str,
+    allow_leaf_symlink: bool = False,
+) -> Path:
     resolved_root = root.resolve()
-    candidate = resolved_root.joinpath(*parts).resolve()
+    candidate = Path(os.path.abspath(resolved_root.joinpath(*parts)))
     try:
         candidate.relative_to(resolved_root)
     except ValueError as exc:
         raise ValueError(f"derived output path escapes matrix output root: {candidate}") from exc
+    current = candidate if not allow_leaf_symlink else candidate.parent
+    while current != resolved_root:
+        if current.is_symlink():
+            raise ValueError(f"derived output path contains a symlink: {current}")
+        current = current.parent
     return candidate
 
 

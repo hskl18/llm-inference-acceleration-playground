@@ -22,6 +22,11 @@ class TokenizersCounter:
         return len(encoding.ids)
 
 
+def is_local_tokenizer_reference(tokenizer: str) -> bool:
+    path = Path(tokenizer).expanduser()
+    return path.is_absolute() or tokenizer.startswith((".", "~")) or path.exists()
+
+
 @lru_cache(maxsize=8)
 def load_token_counter(tokenizer: str, revision: str) -> TokenCounter:
     try:

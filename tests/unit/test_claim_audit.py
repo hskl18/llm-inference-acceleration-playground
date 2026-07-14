@@ -141,6 +141,30 @@ def test_claim_audit_binds_token_count_method_to_raw_rows(tmp_path) -> None:
     assert any("token_count_method does not match raw requests" in blocker for blocker in report["blockers"])
 
 
+def test_claim_audit_rejects_mutable_local_tokenizer_identity(tmp_path) -> None:
+    run_latency_benchmark(
+        base_url="mock://local",
+        model="mock-model",
+        concurrency=1,
+        input_tokens=16,
+        output_tokens=8,
+        output_dir=tmp_path,
+        request_count=2,
+    )
+    tokenizer_path = tmp_path / "tokenizer.json"
+    tokenizer_path.write_text("{}\n", encoding="utf-8")
+    summary_path = tmp_path / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["metadata"]["backend"] = "vllm"
+    summary["metadata"]["tokenizer"] = str(tokenizer_path)
+    summary["metadata"]["tokenizer_revision"] = "b" * 40
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    report = audit_hardware_claim(tmp_path)
+
+    assert any("local tokenizer" in blocker for blocker in report["blockers"])
+
+
 def test_claim_audit_binds_optimization_profile_to_command_flags(tmp_path) -> None:
     command_file = tmp_path.parent / "baseline-command.txt"
     command_file.write_text(
