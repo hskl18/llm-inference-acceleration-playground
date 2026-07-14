@@ -470,6 +470,86 @@ def test_matrix_audits_require_canonical_profile_artifact(tmp_path: Path) -> Non
     assert "invalid_optimization_profile" in _audit_codes(output_dir)
 
 
+def test_v02_claim_and_comparison_cannot_remove_profile_enforcement_triggers(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "matrix"
+    run_matrix(ROOT / "configs" / "optimization_matrix_mock.yaml", output_dir)
+    plan = json.loads((output_dir / "matrix_plan.json").read_text(encoding="utf-8"))
+    baseline_runs = [item for item in plan["runs"] if item["profile"] == "baseline"]
+
+    claim_run = output_dir / baseline_runs[0]["run_id"]
+    (claim_run / "optimization_profile.json").unlink()
+    claim_manifest_path = claim_run / "manifest.json"
+    claim_manifest = json.loads(claim_manifest_path.read_text(encoding="utf-8"))
+    claim_manifest["artifacts"].remove("optimization_profile.json")
+    claim_manifest_path.write_text(json.dumps(claim_manifest), encoding="utf-8")
+    claim_summary_path = claim_run / "summary.json"
+    claim_summary = json.loads(claim_summary_path.read_text(encoding="utf-8"))
+    for field in [
+        "matrix_name",
+        "optimization_profile_spec",
+        "optimization_profile_fingerprint",
+        "optimization_treatment_fingerprint",
+    ]:
+        claim_summary["metadata"].pop(field, None)
+    claim_summary_path.write_text(json.dumps(claim_summary), encoding="utf-8")
+
+    comparison_run = output_dir / baseline_runs[1]["run_id"]
+    (comparison_run / "optimization_profile.json").unlink()
+    comparison_manifest_path = comparison_run / "manifest.json"
+    comparison_manifest = json.loads(
+        comparison_manifest_path.read_text(encoding="utf-8")
+    )
+    comparison_manifest["artifacts"].remove("optimization_profile.json")
+    comparison_manifest_path.write_text(
+        json.dumps(comparison_manifest),
+        encoding="utf-8",
+    )
+    treatment_spec = json.loads(
+        (
+            output_dir
+            / "prefix-cache"
+            / "repeat-01"
+            / "c2-in32-out8"
+            / "optimization_profile.json"
+        ).read_text(encoding="utf-8")
+    )
+    comparison_summary_path = comparison_run / "summary.json"
+    comparison_summary = json.loads(
+        comparison_summary_path.read_text(encoding="utf-8")
+    )
+    comparison_summary["metadata"]["optimization_profile_spec"] = treatment_spec
+    for field in [
+        "matrix_name",
+        "optimization_profile_fingerprint",
+        "optimization_treatment_fingerprint",
+    ]:
+        comparison_summary["metadata"].pop(field, None)
+    comparison_summary_path.write_text(
+        json.dumps(comparison_summary),
+        encoding="utf-8",
+    )
+
+    claim = audit_hardware_claim(claim_run)
+    comparison = compare_run_summaries(
+        [output_dir / item["run_id"] / "summary.json" for item in plan["runs"]],
+        tmp_path / "comparison",
+        source_root=output_dir,
+    )
+    comparison_row = next(
+        row
+        for row in comparison["runs"]
+        if row["summary_path"] == f"{baseline_runs[1]['run_id']}/summary.json"
+    )
+
+    assert any("optimization_profile.json is required" in blocker for blocker in claim["blockers"])
+    assert any(
+        blocker["code"] == "invalid_optimization_profile"
+        for blocker in comparison_row["evidence_blockers"]
+    )
+
+
 def test_matrix_audits_reject_symlinked_canonical_profile_artifact(tmp_path: Path) -> None:
     output_dir = tmp_path / "matrix"
     run_matrix(ROOT / "configs" / "optimization_matrix_mock.yaml", output_dir)

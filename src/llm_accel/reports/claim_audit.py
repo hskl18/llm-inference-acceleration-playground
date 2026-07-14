@@ -164,7 +164,8 @@ def audit_hardware_claim(run_dir: str | Path) -> dict[str, object]:
 
     _validate_server_command(path, metadata, blockers)
     if (
-        (path / "optimization_profile.json").exists()
+        summary.get("schema_version") == "0.2"
+        or (path / "optimization_profile.json").exists()
         or metadata.get("optimization_profile_spec") is not None
         or metadata.get("optimization_profile_fingerprint") is not None
     ):

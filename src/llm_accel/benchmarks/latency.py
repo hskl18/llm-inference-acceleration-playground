@@ -466,15 +466,6 @@ def run_latency_benchmark(
         server_command_sha256 = computed_sha256
         destination = out_dir.resolve() / "server_command.txt"
         write_bytes_atomic(destination, command_bytes)
-    client = OpenAICompatibleClient(
-        base_url=base_url,
-        model=model,
-        backend=backend,
-        request_timeout_seconds=timeout_seconds,
-        api_kind=api_kind,
-        tokenizer=tokenizer,
-        tokenizer_revision=tokenizer_revision,
-    )
     memory_before = sample_gpu_memory()
     workload_mode = "fixed_prompts" if prompt_texts is not None else "synthetic"
     workload_fingerprint = prompt_fingerprint(prompt_texts) if prompt_texts is not None else None
@@ -483,6 +474,15 @@ def run_latency_benchmark(
     shared_fingerprint = shared_prefix_fingerprint(prompt_texts) if prompt_texts is not None else None
 
     if warmup_count:
+        client = OpenAICompatibleClient(
+            base_url=base_url,
+            model=model,
+            backend=backend,
+            request_timeout_seconds=timeout_seconds,
+            api_kind=api_kind,
+            tokenizer=tokenizer,
+            tokenizer_revision=tokenizer_revision,
+        )
         warmup_prompts = fixed_prompt_batch(prompt_texts, warmup_count) if prompt_texts is not None else prompt_batch(warmup_count, input_tokens, seed)
         for index, prompt in enumerate(warmup_prompts):
             client.complete(prompt, output_tokens, index, stream=stream)
