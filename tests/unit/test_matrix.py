@@ -317,6 +317,57 @@ def test_fresh_matrix_replaces_leaf_command_symlink_without_touching_target(tmp_
     )
 
 
+def test_fresh_matrix_replaces_leaf_profile_symlink_without_touching_target(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "matrix"
+    run_dir = output_dir / "baseline" / "repeat-01" / "c2-in32-out8"
+    run_dir.mkdir(parents=True)
+    victim = tmp_path / "outside-profile.json"
+    victim.write_text('{"preserve": true}\n', encoding="utf-8")
+    profile_path = run_dir / "optimization_profile.json"
+    profile_path.symlink_to(victim)
+
+    run_matrix(ROOT / "configs" / "optimization_matrix_mock.yaml", output_dir)
+
+    assert victim.read_text(encoding="utf-8") == '{"preserve": true}\n'
+    assert not profile_path.is_symlink()
+    assert json.loads(profile_path.read_text(encoding="utf-8"))["schema_version"] == "0.2"
+
+
+def test_fresh_matrix_atomically_replaces_evidence_leaf_symlinks(tmp_path: Path) -> None:
+    output_dir = tmp_path / "matrix"
+    run_dir = output_dir / "baseline" / "repeat-01" / "c2-in32-out8"
+    evidence_paths = [
+        output_dir / "resolved_config.json",
+        output_dir / "matrix_summary.json",
+        output_dir / "manifest.json",
+        output_dir / "quality" / "baseline" / "task_outputs.jsonl",
+        output_dir / "quality" / "baseline" / "task_eval.md",
+        run_dir / "raw_requests.jsonl",
+        run_dir / "raw_requests.csv",
+        run_dir / "summary.json",
+        run_dir / "summary.md",
+        run_dir / "plots" / "latency.svg",
+        run_dir / "manifest.json",
+        output_dir / "comparison" / "comparison.md",
+    ]
+    victims: list[Path] = []
+    for index, artifact_path in enumerate(evidence_paths):
+        artifact_path.parent.mkdir(parents=True, exist_ok=True)
+        victim = tmp_path / f"outside-{index}.txt"
+        victim.write_text(f"preserve-{index}\n", encoding="utf-8")
+        artifact_path.symlink_to(victim)
+        victims.append(victim)
+
+    run_matrix(ROOT / "configs" / "optimization_matrix_mock.yaml", output_dir)
+
+    for index, (artifact_path, victim) in enumerate(zip(evidence_paths, victims, strict=True)):
+        assert victim.read_text(encoding="utf-8") == f"preserve-{index}\n"
+        assert not artifact_path.is_symlink()
+        assert artifact_path.is_file()
+
+
 def test_matrix_rejects_command_mutation_after_plan_creation(monkeypatch, tmp_path: Path) -> None:
     original = matrix_module._run_planned_cell
     attacked = False
@@ -415,6 +466,35 @@ def test_matrix_audits_require_canonical_profile_artifact(tmp_path: Path) -> Non
     claim = audit_hardware_claim(run_dir)
 
     assert any("optimization_profile.json is required" in blocker for blocker in claim["blockers"])
+    assert "invalid_optimization_profile" in _audit_codes(output_dir)
+
+
+def test_matrix_audits_reject_symlinked_canonical_profile_artifact(tmp_path: Path) -> None:
+    output_dir = tmp_path / "matrix"
+    run_matrix(ROOT / "configs" / "optimization_matrix_mock.yaml", output_dir)
+    plan = json.loads((output_dir / "matrix_plan.json").read_text(encoding="utf-8"))
+    run_dir = output_dir / "baseline" / "repeat-01" / "c2-in32-out8"
+    profile_path = run_dir / "optimization_profile.json"
+    outside_profile = tmp_path / "outside-profile.json"
+    outside_profile.write_bytes(profile_path.read_bytes())
+    profile_path.unlink()
+    profile_path.symlink_to(outside_profile)
+
+    claim = audit_hardware_claim(run_dir)
+    comparison = compare_run_summaries(
+        [output_dir / item["run_id"] / "summary.json" for item in plan["runs"]],
+        tmp_path / "comparison",
+        source_root=output_dir,
+    )
+    baseline_run = next(
+        row for row in comparison["runs"] if row["summary_path"].startswith("baseline/")
+    )
+
+    assert any("must not be a symlink" in blocker for blocker in claim["blockers"])
+    assert any(
+        blocker["code"] == "invalid_optimization_profile"
+        for blocker in baseline_run["evidence_blockers"]
+    )
     assert "invalid_optimization_profile" in _audit_codes(output_dir)
 
 

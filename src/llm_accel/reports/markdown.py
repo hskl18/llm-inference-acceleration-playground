@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from llm_accel.metrics.io import write_text_atomic
+
 
 def render_summary_markdown(summary: dict[str, Any]) -> str:
     metadata = summary.get("metadata", {})
@@ -103,8 +105,7 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
 
 
 def write_summary_markdown(path: Path, summary: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_summary_markdown(summary), encoding="utf-8")
+    write_text_atomic(path, render_summary_markdown(summary))
 
 
 def render_aggregate_markdown(aggregate: dict[str, object]) -> str:
@@ -138,5 +139,4 @@ def render_aggregate_markdown(aggregate: dict[str, object]) -> str:
 
 
 def write_aggregate_markdown(path: Path, aggregate: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_aggregate_markdown(aggregate), encoding="utf-8")
+    write_text_atomic(path, render_aggregate_markdown(aggregate))

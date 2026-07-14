@@ -3,6 +3,7 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 
+from llm_accel.metrics.io import write_text_atomic
 from llm_accel.metrics.schemas import RequestMetrics
 
 
@@ -13,7 +14,7 @@ def write_latency_svg(path: Path, records: list[RequestMetrics]) -> None:
     height = 320
     padding = 48
     if not completed:
-        path.write_text(_empty_svg(width, height, "No completed requests"), encoding="utf-8")
+        write_text_atomic(path, _empty_svg(width, height, "No completed requests"))
         return
 
     max_latency = max(record.total_latency_ms for record in completed) or 1.0
@@ -39,7 +40,7 @@ def write_latency_svg(path: Path, records: list[RequestMetrics]) -> None:
   {''.join(bars)}
 </svg>
 """
-    path.write_text(svg, encoding="utf-8")
+    write_text_atomic(path, svg)
 
 
 def _empty_svg(width: int, height: int, message: str) -> str:
@@ -57,7 +58,7 @@ def write_sweep_svg(path: Path, aggregate: dict[str, object]) -> None:
     height = 360
     padding = 56
     if not runs:
-        path.write_text(_empty_svg(width, height, "No sweep runs"), encoding="utf-8")
+        write_text_atomic(path, _empty_svg(width, height, "No sweep runs"))
         return
 
     points: list[tuple[float, float, str]] = []
@@ -91,7 +92,7 @@ def write_sweep_svg(path: Path, aggregate: dict[str, object]) -> None:
   {''.join(circles)}
 </svg>
 """
-    path.write_text(svg, encoding="utf-8")
+    write_text_atomic(path, svg)
 
 
 def write_latency_throughput_svg(path: Path, aggregate: dict[str, object]) -> None:
@@ -101,7 +102,7 @@ def write_latency_throughput_svg(path: Path, aggregate: dict[str, object]) -> No
     height = 360
     padding = 56
     if not runs:
-        path.write_text(_empty_svg(width, height, "No sweep runs"), encoding="utf-8")
+        write_text_atomic(path, _empty_svg(width, height, "No sweep runs"))
         return
 
     points: list[tuple[float, float, str]] = []
@@ -134,4 +135,4 @@ def write_latency_throughput_svg(path: Path, aggregate: dict[str, object]) -> No
   {''.join(circles)}
 </svg>
 """
-    path.write_text(svg, encoding="utf-8")
+    write_text_atomic(path, svg)

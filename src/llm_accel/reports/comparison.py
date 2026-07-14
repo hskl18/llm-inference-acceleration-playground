@@ -10,7 +10,7 @@ from llm_accel.metrics.environment import (
     ENVIRONMENT_FINGERPRINT_FIELDS,
     environment_fingerprint,
 )
-from llm_accel.metrics.io import write_json
+from llm_accel.metrics.io import write_json, write_text_atomic
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.metrics.optimization_profile import (
     OPTIMIZATION_PROFILE_SCHEMA_VERSION,
@@ -584,8 +584,7 @@ def _write_markdown(path: Path, report: dict[str, object]) -> None:
             "",
         ]
     )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines), encoding="utf-8")
+    write_text_atomic(path, "\n".join(lines))
 
 
 def _blocker(code: str, message: str, **details: object) -> dict[str, object]:

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
-from llm_accel.metrics.io import write_json
+from llm_accel.metrics.io import write_json_atomic
 
 
 OPTIMIZATION_PROFILE_SCHEMA_VERSION = "0.2"
@@ -264,12 +264,15 @@ def optimization_profile_from_dict(payload: Mapping[str, object]) -> Optimizatio
 
 def write_optimization_profile(output_dir: str | Path, profile: OptimizationProfile) -> Path:
     path = Path(output_dir) / OPTIMIZATION_PROFILE_ARTIFACT
-    write_json(path, profile.to_dict())
+    write_json_atomic(path, profile.to_dict())
     return path
 
 
 def load_optimization_profile(path: str | Path) -> OptimizationProfile:
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    artifact_path = Path(path)
+    if artifact_path.is_symlink():
+        raise ValueError("optimization profile artifact must not be a symlink")
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("optimization profile artifact must contain an object")
     return optimization_profile_from_dict(payload)
