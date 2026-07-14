@@ -15,6 +15,8 @@ class VllmServerCommand:
     port: int
     dtype: str
     revision: str | None = None
+    tokenizer: str | None = None
+    tokenizer_revision: str | None = None
     quantization: str | None = None
     max_model_len: int | None = None
     gpu_memory_utilization: float | None = None
@@ -43,6 +45,10 @@ class VllmServerCommand:
             args.extend(["--quantization", self.quantization])
         if self.revision:
             args.extend(["--revision", self.revision])
+        if self.tokenizer:
+            args.extend(["--tokenizer", self.tokenizer])
+        if self.tokenizer_revision:
+            args.extend(["--tokenizer-revision", self.tokenizer_revision])
         if self.max_model_len:
             args.extend(["--max-model-len", str(self.max_model_len)])
         if self.gpu_memory_utilization:
@@ -78,6 +84,8 @@ def build_vllm_command(
     port: int = 8000,
     dtype: str = "auto",
     revision: str | None = None,
+    tokenizer: str | None = None,
+    tokenizer_revision: str | None = None,
     quantization: str | None = None,
     max_model_len: int | None = None,
     gpu_memory_utilization: float | None = None,
@@ -104,6 +112,10 @@ def build_vllm_command(
         raise ValueError("speculative_model is required when num_speculative_tokens is provided")
     if revision is not None:
         require_immutable_revision(revision)
+    resolved_tokenizer = tokenizer or model
+    resolved_tokenizer_revision = tokenizer_revision or revision
+    if resolved_tokenizer_revision is not None:
+        require_immutable_revision(resolved_tokenizer_revision)
     normalized_dtype = normalize_vllm_dtype(dtype)
     return VllmServerCommand(
         model=model,
@@ -111,6 +123,8 @@ def build_vllm_command(
         port=port,
         dtype=normalized_dtype,
         revision=revision,
+        tokenizer=resolved_tokenizer,
+        tokenizer_revision=resolved_tokenizer_revision,
         quantization=quantization,
         max_model_len=max_model_len,
         gpu_memory_utilization=gpu_memory_utilization,

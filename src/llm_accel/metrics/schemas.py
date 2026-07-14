@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 
-SCHEMA_VERSION = "0.1"
+SCHEMA_VERSION = "0.2"
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,10 @@ class RequestMetrics:
     error: str | None = None
     started_offset_ms: float = 0.0
     completed_offset_ms: float = 0.0
+    scheduled_offset_ms: float = 0.0
+    dispatch_offset_ms: float = 0.0
+    queue_delay_ms: float = 0.0
+    end_to_end_latency_ms: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -55,6 +59,8 @@ class RunMetadata:
     shared_prefix_tokens_estimate: int | None = None
     shared_prefix_fingerprint: str | None = None
     model_revision: str | None = None
+    tokenizer: str | None = None
+    tokenizer_revision: str | None = None
     optimization_profile: str = "baseline"
     gpu_driver_version: str | None = None
     cuda_version: str | None = None
@@ -62,6 +68,12 @@ class RunMetadata:
     torch_version: str | None = None
     server_command_sha256: str | None = None
     stream: bool = True
+    request_schedule: str = "closed-loop"
+    request_rate_rps: float | None = None
+    client_processes: int = 1
+    client_workers: int = 1
+    queue_delay_warning_ms: float = 10.0
+    client_configuration: dict[str, Any] | None = None
     schema_version: str = SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:

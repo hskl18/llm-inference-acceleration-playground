@@ -2,7 +2,12 @@ import json
 import csv
 from pathlib import Path
 
+import pytest
+
 from llm_accel.cli import main
+
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_cli_doctor(capsys) -> None:
@@ -11,6 +16,13 @@ def test_cli_doctor(capsys) -> None:
     assert '"status": "ok"' in output
     assert '"backend_capability"' in output
     assert '"gpu_memory"' in output
+
+
+def test_cli_version_uses_authoritative_version(capsys) -> None:
+    with pytest.raises(SystemExit, match="0"):
+        main(["--version"])
+
+    assert capsys.readouterr().out == "llm-accel 0.2.0\n"
 
 
 def test_cli_kv_cache_json(capsys) -> None:
@@ -115,6 +127,7 @@ def test_cli_latency_benchmark_writes_outputs(tmp_path: Path) -> None:
     assert (output_dir / "summary.md").exists()
     assert (output_dir / "plots" / "latency.svg").exists()
     summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
+    assert summary["schema_version"] == "0.2"
     assert summary["metrics"]["throughput"]["measured_elapsed_seconds"] is not None
     assert "timeout_count" in summary["metrics"]
     assert summary["metadata"]["api_kind"] == "chat"
@@ -122,6 +135,17 @@ def test_cli_latency_benchmark_writes_outputs(tmp_path: Path) -> None:
     assert summary["metadata"]["hardware_label"] == "test-host"
     assert summary["metadata"]["python_version"]
     assert summary["metadata"]["operating_system"]
+    assert summary["metadata"]["workload_fingerprint"]
+    assert summary["metadata"]["client_configuration"] == {
+        "api_kind": "chat",
+        "client_processes": 1,
+        "client_workers": 2,
+        "queue_delay_warning_ms": 10.0,
+        "request_rate_rps": None,
+        "request_schedule": "closed-loop",
+        "stream": True,
+        "timeout_seconds": 120.0,
+    }
     assert "git_commit" in summary["metadata"]
     assert "gpu_name" in summary["metadata"]
     assert "gpu_driver_version" in summary["metadata"]
@@ -324,6 +348,68 @@ def test_cli_latency_benchmark_warns_for_non_streaming(tmp_path: Path) -> None:
     assert any("Non-streaming mode cannot observe TTFT" in warning for warning in summary["warnings"])
 
 
+def test_cli_latency_benchmark_accepts_open_loop_client_options(tmp_path: Path) -> None:
+    output_dir = tmp_path / "open-loop"
+
+    assert (
+        main(
+            [
+                "bench",
+                "latency",
+                "--base-url",
+                "mock://local",
+                "--concurrency",
+                "2",
+                "--request-count",
+                "3",
+                "--output-tokens",
+                "2",
+                "--request-schedule",
+                "open-loop",
+                "--request-rate-rps",
+                "500",
+                "--client-processes",
+                "2",
+                "--queue-delay-warning-ms",
+                "0",
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
+
+    summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
+    resolved = json.loads((output_dir / "resolved_config.json").read_text(encoding="utf-8"))
+    rows = list(csv.DictReader((output_dir / "raw_requests.csv").open(encoding="utf-8")))
+    assert summary["metadata"]["request_schedule"] == "open-loop"
+    assert summary["metadata"]["request_rate_rps"] == 500.0
+    assert summary["metadata"]["client_processes"] == 2
+    assert summary["metadata"]["client_workers"] == 2
+    assert summary["metadata"]["client_configuration"]["request_schedule"] == "open-loop"
+    assert resolved["queue_delay_warning_ms"] == 0.0
+    assert all(row["scheduled_offset_ms"] for row in rows[1:])
+    assert all(row["dispatch_offset_ms"] for row in rows)
+    assert "Queue delay p95" in (output_dir / "summary.md").read_text(encoding="utf-8")
+
+
+def test_cli_open_loop_requires_request_rate(tmp_path: Path, capsys) -> None:
+    assert (
+        main(
+            [
+                "bench",
+                "latency",
+                "--request-schedule",
+                "open-loop",
+                "--output-dir",
+                str(tmp_path / "invalid-open-loop"),
+            ]
+        )
+        == 2
+    )
+    assert "request_rate_rps must be positive" in capsys.readouterr().err
+
+
 def test_cli_sweep_writes_aggregate(tmp_path: Path) -> None:
     output_dir = tmp_path / "sweep"
 
@@ -432,6 +518,41 @@ def test_cli_sweep_accepts_prompt_workload(tmp_path: Path) -> None:
     summary = json.loads((output_dir / "c1-prompts-out8" / "summary.json").read_text(encoding="utf-8"))
     assert summary["metadata"]["workload_mode"] == "fixed_prompts"
     assert summary["metadata"]["prompt_count"] == 2
+
+
+def test_cli_sweep_threads_open_loop_client_settings(tmp_path: Path) -> None:
+    config_path = tmp_path / "open-loop-sweep.yaml"
+    output_dir = tmp_path / "open-loop-sweep"
+    config_path.write_text(
+        "\n".join(
+            [
+                "run:",
+                "  name: open-loop-sweep",
+                "  measured_requests: 3",
+                "  client_processes: 1",
+                "  queue_delay_warning_ms: 0",
+                "endpoint:",
+                "  base_url: mock://local",
+                "  backend: mock",
+                "model:",
+                "  name: mock-model",
+                "workload:",
+                "  input_tokens: [16]",
+                "  output_tokens: [2]",
+                "  concurrency: [1]",
+                "  request_schedule: open-loop",
+                "  request_rate_rps: 500",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert main(["bench", "sweep", "--config", str(config_path), "--output-dir", str(output_dir)]) == 0
+
+    summary = json.loads((output_dir / "c1-in16-out2" / "summary.json").read_text(encoding="utf-8"))
+    assert summary["metadata"]["request_schedule"] == "open-loop"
+    assert summary["metadata"]["request_rate_rps"] == 500.0
+    assert summary["metadata"]["queue_delay_warning_ms"] == 0.0
 
 
 def test_cli_backend_list(capsys) -> None:
@@ -617,6 +738,7 @@ def test_cli_eval_sanity(tmp_path: Path) -> None:
     )
 
     assert (output_dir / "manifest.json").exists()
+    assert (output_dir / "quality_outputs.jsonl").exists()
     assert (output_dir / "quality_eval.json").exists()
     assert (output_dir / "quality_eval.md").exists()
     report = json.loads((output_dir / "quality_eval.json").read_text(encoding="utf-8"))
@@ -645,6 +767,8 @@ def test_cli_eval_task(tmp_path: Path) -> None:
     )
 
     assert (output_dir / "manifest.json").exists()
+    assert (output_dir / "task_specs.jsonl").exists()
+    assert (output_dir / "task_outputs.jsonl").exists()
     assert (output_dir / "task_eval.json").exists()
     assert (output_dir / "task_eval.md").exists()
     report = json.loads((output_dir / "task_eval.json").read_text(encoding="utf-8"))
@@ -706,3 +830,32 @@ def test_cli_report_generate_supports_summary_to_markdown(tmp_path: Path) -> Non
 
     assert output.exists()
     assert "Benchmark Summary" in output.read_text(encoding="utf-8")
+
+
+def test_cli_matrix_and_ranking_audit(tmp_path: Path, capsys) -> None:
+    output_dir = tmp_path / "matrix"
+
+    assert (
+        main(
+            [
+                "bench",
+                "matrix",
+                "--config",
+                str(ROOT / "configs" / "optimization_matrix_mock.yaml"),
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["planned_run_count"] == 15
+    assert result["successful_run_count"] == 15
+
+    assert main(["report", "ranking-audit", "--matrix-dir", str(output_dir)]) == 1
+    audit = json.loads(capsys.readouterr().out)
+    assert audit["publishable_performance_ranking"] is False
+    assert {blocker["code"] for blocker in audit["blockers"]} >= {
+        "coordinated_omission_risk",
+        "single_run_audit_failed",
+    }

@@ -21,6 +21,7 @@ SPEC_OUT = ROOT / "results" / "runs" / "smoke-speculative"
 VLLM_VALIDATE_OUT = ROOT / "results" / "runs" / "smoke-vllm-validation"
 VLLM_PLAN_OUT = ROOT / "results" / "runs" / "smoke-vllm-plan"
 EXAMPLES_OUT = ROOT / "results" / "runs" / "smoke-examples"
+MATRIX_OUT = ROOT / "results" / "runs" / "smoke-matrix"
 
 
 def run(command: list[str]) -> None:
@@ -61,6 +62,7 @@ def main() -> int:
         VLLM_VALIDATE_OUT,
         VLLM_PLAN_OUT,
         EXAMPLES_OUT,
+        MATRIX_OUT,
     ]
     for output_dir in output_dirs:
         if output_dir.exists():
@@ -219,6 +221,7 @@ def main() -> int:
             str(EVAL_OUT),
         ]
     )
+    require_file(EVAL_OUT / "quality_outputs.jsonl")
     require_file(EVAL_OUT / "quality_eval.json")
     run(
         [
@@ -236,6 +239,37 @@ def main() -> int:
             "--output-dir",
             str(TASK_OUT),
         ]
+    )
+    require_file(TASK_OUT / "task_specs.jsonl")
+    require_file(TASK_OUT / "task_outputs.jsonl")
+    run(
+        [
+            sys.executable,
+            "-m",
+            "llm_accel.cli",
+            "bench",
+            "matrix",
+            "--config",
+            "configs/optimization_matrix_mock.yaml",
+            "--output-dir",
+            str(MATRIX_OUT),
+        ]
+    )
+    require_file(MATRIX_OUT / "matrix_plan.json")
+    require_file(MATRIX_OUT / "matrix_state.json")
+    require_file(MATRIX_OUT / "matrix_summary.json")
+    require_file(MATRIX_OUT / "comparison" / "comparison.json")
+    run_expect(
+        [
+            sys.executable,
+            "-m",
+            "llm_accel.cli",
+            "report",
+            "ranking-audit",
+            "--matrix-dir",
+            str(MATRIX_OUT),
+        ],
+        1,
     )
     require_file(TASK_OUT / "task_eval.json")
     run(

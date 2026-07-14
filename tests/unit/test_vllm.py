@@ -10,6 +10,8 @@ def test_build_vllm_command_includes_optional_flags() -> None:
         port=8001,
         dtype="fp16",
         revision=REVISION,
+        tokenizer="meta-llama/example-tokenizer",
+        tokenizer_revision="b" * 40,
         quantization="awq",
         max_model_len=4096,
         gpu_memory_utilization=0.9,
@@ -27,6 +29,8 @@ def test_build_vllm_command_includes_optional_flags() -> None:
     assert "--quantization" in argv
     assert argv[argv.index("--dtype") + 1] == "float16"
     assert argv[argv.index("--revision") + 1] == REVISION
+    assert argv[argv.index("--tokenizer") + 1] == "meta-llama/example-tokenizer"
+    assert argv[argv.index("--tokenizer-revision") + 1] == "b" * 40
     assert "awq" in argv
     assert "--gpu-memory-utilization" in argv
     assert "--enable-prefix-caching" in argv

@@ -24,9 +24,15 @@ class CompletionResult:
 class MockOpenAIClient:
     """Deterministic local client for smoke tests and contributor onboarding."""
 
-    def __init__(self, model: str = "mock-model", backend: str = "mock") -> None:
+    def __init__(
+        self,
+        model: str = "mock-model",
+        backend: str = "mock",
+        request_timeout_seconds: float = 120.0,
+    ) -> None:
         self.model = model
         self.backend = backend
+        self.request_timeout_seconds = request_timeout_seconds
 
     def complete(self, prompt: str, max_tokens: int, request_index: int = 0, stream: bool = True) -> CompletionResult:
         input_tokens = max(len(prompt.split()), 1)
@@ -35,6 +41,9 @@ class MockOpenAIClient:
         ttft_ms = 18.0 + input_tokens * 0.04 + request_index * 0.1 if stream else 20.0 + input_tokens * 0.04
         tpot_ms = 2.0 + min(output_tokens, 512) * 0.002
         total_latency_ms = ttft_ms + tpot_ms * max(output_tokens - 1, 0)
+        if total_latency_ms > self.request_timeout_seconds * 1000:
+            time.sleep(self.request_timeout_seconds)
+            raise TimeoutError(f"request timed out after {self.request_timeout_seconds} seconds")
         time.sleep(total_latency_ms / 1000)
         prompt_terms = [term.strip(".,:;!?").lower() for term in prompt.split() if term.strip(".,:;!?")]
         seed_terms = prompt_terms[: min(8, len(prompt_terms))] or ["mock"]
@@ -69,7 +78,11 @@ class OpenAICompatibleClient:
 
     def complete(self, prompt: str, max_tokens: int, request_index: int = 0, stream: bool = True) -> CompletionResult:
         if self.base_url.startswith("mock://") or self.backend == "mock":
-            return MockOpenAIClient(self.model, "mock").complete(prompt, max_tokens, request_index, stream)
+            return MockOpenAIClient(
+                self.model,
+                "mock",
+                self.request_timeout_seconds,
+            ).complete(prompt, max_tokens, request_index, stream)
         if stream:
             return self._complete_streaming(prompt, max_tokens)
         return self._complete_non_streaming(prompt, max_tokens)

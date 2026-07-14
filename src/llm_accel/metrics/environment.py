@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import platform
 import re
 import subprocess
@@ -9,6 +11,22 @@ from importlib import metadata
 from pathlib import Path
 
 from llm_accel.metrics.memory import GpuMemorySnapshot
+
+
+ENVIRONMENT_FINGERPRINT_FIELDS = (
+    "backend",
+    "backend_version",
+    "project_version",
+    "git_commit",
+    "python_version",
+    "operating_system",
+    "hardware_label",
+    "gpu_name",
+    "gpu_driver_version",
+    "cuda_version",
+    "cuda_driver_api_version",
+    "torch_version",
+)
 
 
 def resolve_git_commit(cwd: str | Path = ".") -> str | None:
@@ -42,6 +60,12 @@ def collect_environment_metadata(
         "gpu_name": gpu_memory.gpu_name if gpu_memory and gpu_memory.available else None,
         **accelerator,
     }
+
+
+def environment_fingerprint(metadata: dict[str, object]) -> str:
+    payload = {field: metadata.get(field) for field in ENVIRONMENT_FINGERPRINT_FIELDS}
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def collect_accelerator_metadata() -> dict[str, str | None]:

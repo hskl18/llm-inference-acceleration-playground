@@ -1,3 +1,6 @@
 """LLM inference acceleration benchmark toolkit."""
 
-__version__ = "0.1.0"
+from llm_accel._version import __version__
+
+
+__all__ = ["__version__"]

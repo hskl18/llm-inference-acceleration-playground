@@ -5,6 +5,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from llm_accel.benchmarks.latency import run_latency_benchmark
 from llm_accel.serving.openai_client import OpenAICompatibleClient
 
 
@@ -120,3 +121,27 @@ def test_openai_client_completion_endpoint_streaming() -> None:
     assert result.output_tokens == 2
     assert result.ttft_ms < result.total_latency_ms
     assert _OpenAIHandler.seen_paths == ["/v1/completions"]
+
+
+def test_open_loop_delayed_endpoint_exposes_client_queue_saturation(tmp_path) -> None:
+    server, base_url = _start_server()
+    try:
+        summary = run_latency_benchmark(
+            base_url=base_url,
+            model="mock-model",
+            backend="openai-compatible",
+            concurrency=1,
+            input_tokens=8,
+            output_tokens=2,
+            output_dir=tmp_path / "delayed-open-loop",
+            request_count=4,
+            request_schedule="open-loop",
+            request_rate_rps=1000.0,
+            queue_delay_warning_ms=1.0,
+        )
+    finally:
+        server.shutdown()
+
+    assert summary["metrics"]["queue_delay_ms"]["p95"] > 1.0
+    assert any("Client saturation detected" in warning for warning in summary["warnings"])
+    assert summary["metrics"]["end_to_end_latency_ms"]["p95"] > summary["metrics"]["latency_ms"]["p95"]

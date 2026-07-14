@@ -8,6 +8,8 @@ import shlex
 from pathlib import Path
 
 from llm_accel.metrics.aggregation import summarize_requests
+from llm_accel.metrics.environment import environment_fingerprint
+from llm_accel.metrics.optimization_profile import OptimizationProfile, load_optimization_profile
 from llm_accel.metrics.schemas import RequestMetrics
 from llm_accel.reports.validation import validate_run_dir
 from llm_accel.serving.vllm import normalize_vllm_dtype, optimization_profile_name
@@ -53,10 +55,16 @@ def audit_hardware_claim(run_dir: str | Path) -> dict[str, object]:
         "torch_version": "PyTorch version",
         "git_commit": "benchmark code commit",
         "server_command_sha256": "exact server command fingerprint",
+        "tokenizer_revision": "exact tokenizer revision",
+        "environment_fingerprint": "environment fingerprint",
     }
+    if (path / "optimization_profile.json").exists():
+        required_metadata["optimization_profile_fingerprint"] = "optimization profile fingerprint"
     for key, label in required_metadata.items():
         if metadata.get(key) in {None, "", "unknown"}:
             blockers.append(f"missing {label} ({key})")
+    if metadata.get("environment_fingerprint") != environment_fingerprint(metadata):
+        blockers.append("environment_fingerprint does not match canonical environment metadata")
 
     git_commit = str(metadata.get("git_commit") or "")
     if git_commit and not re.fullmatch(r"[0-9a-f]{40,64}", git_commit):
@@ -64,6 +72,9 @@ def audit_hardware_claim(run_dir: str | Path) -> dict[str, object]:
     model_revision = str(metadata.get("model_revision") or "")
     if model_revision and not re.fullmatch(r"[0-9a-f]{40,64}", model_revision):
         blockers.append("model_revision must be a full immutable hexadecimal revision")
+    tokenizer_revision = str(metadata.get("tokenizer_revision") or "")
+    if tokenizer_revision and not re.fullmatch(r"[0-9a-f]{40,64}", tokenizer_revision):
+        blockers.append("tokenizer_revision must be a full immutable hexadecimal revision")
     server_command_sha256 = str(metadata.get("server_command_sha256") or "")
     if server_command_sha256 and not re.fullmatch(r"[0-9a-f]{64}", server_command_sha256):
         blockers.append("server_command_sha256 must be a lowercase 64-character SHA-256 digest")
@@ -109,6 +120,10 @@ def audit_hardware_claim(run_dir: str | Path) -> dict[str, object]:
         blockers.append("GPU memory telemetry is unavailable")
     else:
         _validate_memory(memory, blockers)
+        for snapshot_name in ["before", "after"]:
+            snapshot = memory.get(snapshot_name)
+            if isinstance(snapshot, dict) and snapshot.get("gpu_name") != metadata.get("gpu_name"):
+                blockers.append(f"memory.{snapshot_name}.gpu_name does not match summary metadata")
 
     for metric_group in ["latency_ms", "ttft_ms", "tpot_ms"]:
         values = metrics.get(metric_group)
@@ -131,6 +146,21 @@ def audit_hardware_claim(run_dir: str | Path) -> dict[str, object]:
                 blockers.append(f"metrics.throughput.{key} must be finite and positive")
 
     _validate_server_command(path, metadata, blockers)
+    if (path / "optimization_profile.json").exists():
+        _validate_optimization_profile(path, metadata, blockers)
+
+    client_configuration = metadata.get("client_configuration")
+    if not isinstance(client_configuration, dict):
+        blockers.append("structured client_configuration is required")
+    if metadata.get("request_schedule") not in {"closed-loop", "open-loop"}:
+        blockers.append("request_schedule must identify closed-loop or open-loop scheduling")
+    queue_delay = metrics.get("queue_delay_ms")
+    if not isinstance(queue_delay, dict):
+        blockers.append("metrics.queue_delay_ms is missing")
+    else:
+        for percentile_name in ["p50", "p95", "p99", "max"]:
+            if not _finite_non_negative(queue_delay.get(percentile_name)):
+                blockers.append(f"metrics.queue_delay_ms.{percentile_name} must be finite and non-negative")
 
     raw_result = _read_raw_requests(raw_path)
     if raw_result is None:
@@ -168,6 +198,10 @@ def audit_hardware_claim(run_dir: str | Path) -> dict[str, object]:
     warnings.append(
         "Artifact checks cannot independently attest that the endpoint process matched the recorded command; preserve operator or platform launch evidence."
     )
+    if metadata.get("request_schedule") == "closed-loop":
+        warnings.append(
+            "Closed-loop scheduling is susceptible to coordinated omission and is not sufficient for a cross-profile performance ranking."
+        )
     evidence = {
         "backend": metadata.get("backend"),
         "model": metadata.get("model"),
@@ -204,23 +238,28 @@ def _validate_server_command(
     expected = {
         "--model": metadata.get("model"),
         "--revision": metadata.get("model_revision"),
+        "--tokenizer": metadata.get("tokenizer"),
+        "--tokenizer-revision": metadata.get("tokenizer_revision"),
         "--dtype": metadata.get("dtype"),
     }
     for flag, expected_value in expected.items():
+        if expected_value is None and flag in {"--tokenizer", "--tokenizer-revision"}:
+            continue
         actual = _flag_value(argv, flag)
         if actual != expected_value:
             blockers.append(f"server command {flag} does not match summary metadata")
     command_quantization = _flag_value(argv, "--quantization") or "none"
     if command_quantization != metadata.get("quantization"):
         blockers.append("server command --quantization does not match summary metadata")
-    command_profile = optimization_profile_name(
-        enable_prefix_caching="--enable-prefix-caching" in argv,
-        enable_chunked_prefill="--enable-chunked-prefill" in argv,
-        speculative_model=_flag_value(argv, "--speculative-model"),
-        quantization=_flag_value(argv, "--quantization"),
-    )
-    if command_profile != metadata.get("optimization_profile"):
-        blockers.append("optimization_profile does not match the recorded server command flags")
+    if not (path / "optimization_profile.json").exists():
+        command_profile = optimization_profile_name(
+            enable_prefix_caching="--enable-prefix-caching" in argv,
+            enable_chunked_prefill="--enable-chunked-prefill" in argv,
+            speculative_model=_flag_value(argv, "--speculative-model"),
+            quantization=_flag_value(argv, "--quantization"),
+        )
+        if command_profile != metadata.get("optimization_profile"):
+            blockers.append("optimization_profile does not match the recorded server command flags")
 
 
 def _flag_value(argv: list[str], flag: str) -> str | None:
@@ -229,6 +268,67 @@ def _flag_value(argv: list[str], flag: str) -> str | None:
     except ValueError:
         return None
     return argv[index + 1] if index + 1 < len(argv) else None
+
+
+def _validate_optimization_profile(
+    path: Path,
+    metadata: dict[str, object],
+    blockers: list[str],
+) -> None:
+    try:
+        profile = load_optimization_profile(path / "optimization_profile.json")
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        blockers.append(f"optimization_profile.json is required and must be valid: {exc}")
+        return
+    expected = {
+        "model": profile.model,
+        "model_revision": profile.model_revision,
+        "tokenizer_revision": profile.tokenizer_revision,
+        "backend": profile.backend,
+        "backend_version": profile.backend_version,
+        "dtype": profile.dtype,
+        "quantization": profile.quantization,
+        "environment_fingerprint": profile.environment_fingerprint,
+        "optimization_profile_fingerprint": profile.semantic_fingerprint,
+        "server_command_sha256": profile.server_command_sha256,
+    }
+    for key, value in expected.items():
+        if metadata.get(key) != value:
+            blockers.append(f"summary metadata {key} does not match optimization_profile.json")
+    if metadata.get("optimization_profile") != profile.name:
+        blockers.append("summary optimization_profile name does not match optimization_profile.json")
+    if profile.backend == "vllm":
+        _validate_vllm_profile_flags(profile, blockers)
+
+
+def _validate_vllm_profile_flags(profile: OptimizationProfile, blockers: list[str]) -> None:
+    argv = list(profile.server_command_argv)
+    boolean_flags = {
+        "--enable-prefix-caching": profile.prefix_cache,
+        "--enable-chunked-prefill": profile.chunked_prefill,
+    }
+    for flag, expected in boolean_flags.items():
+        if (flag in argv) != expected:
+            blockers.append(f"optimization profile {flag} does not match the exact server command")
+    expected_values: dict[str, object] = {
+        "--model": profile.model,
+        "--revision": profile.model_revision,
+        "--tokenizer": profile.tokenizer,
+        "--tokenizer-revision": profile.tokenizer_revision,
+        "--dtype": profile.dtype,
+        "--quantization": None if profile.quantization == "none" else profile.quantization,
+        "--speculative-model": profile.speculative_model,
+        "--num-speculative-tokens": profile.num_speculative_tokens,
+        "--max-num-batched-tokens": profile.max_num_batched_tokens,
+        "--max-num-seqs": profile.max_num_seqs,
+        "--max-model-len": profile.max_model_len,
+        "--gpu-memory-utilization": profile.gpu_memory_utilization,
+    }
+    for flag, expected in expected_values.items():
+        actual = _flag_value(argv, flag)
+        expected_text = None if expected is None else str(expected)
+        if actual != expected_text:
+            blockers.append(f"optimization profile {flag} does not match the exact server command")
 
 
 def _validate_raw_requests(
@@ -265,6 +365,44 @@ def _validate_raw_requests(
         if float(row["completed_offset_ms"]) < float(row["started_offset_ms"]):
             blockers.append("raw request completion offsets must not precede start offsets")
             break
+        for key in ["scheduled_offset_ms", "dispatch_offset_ms", "queue_delay_ms", "end_to_end_latency_ms"]:
+            if not _finite_non_negative(row.get(key)):
+                blockers.append(f"raw requests must include a finite non-negative {key}")
+                break
+        else:
+            if float(row["scheduled_offset_ms"]) > float(row["dispatch_offset_ms"]):
+                blockers.append("raw request dispatch offsets must not precede scheduled offsets")
+                break
+            if float(row["dispatch_offset_ms"]) != float(row["started_offset_ms"]):
+                blockers.append("raw request dispatch offsets must match started offsets")
+                break
+            if not math.isclose(
+                float(row["queue_delay_ms"]),
+                float(row["dispatch_offset_ms"]) - float(row["scheduled_offset_ms"]),
+                rel_tol=1e-9,
+                abs_tol=1e-6,
+            ):
+                blockers.append("raw request queue delay does not match dispatch minus schedule")
+                break
+            dispatch_span = float(row["completed_offset_ms"]) - float(row["dispatch_offset_ms"])
+            scheduled_span = float(row["completed_offset_ms"]) - float(row["scheduled_offset_ms"])
+            timing_tolerance_ms = max(5.0, dispatch_span * 0.01)
+            if not math.isclose(
+                float(row["total_latency_ms"]),
+                dispatch_span,
+                rel_tol=0.01,
+                abs_tol=timing_tolerance_ms,
+            ):
+                blockers.append("raw request total latency does not match completion minus dispatch")
+                break
+            if not math.isclose(
+                float(row["end_to_end_latency_ms"]),
+                scheduled_span,
+                rel_tol=1e-9,
+                abs_tol=1e-6,
+            ):
+                blockers.append("raw request end-to-end latency does not match completion minus schedule")
+                break
     if output_tokens != metrics.get("output_tokens"):
         blockers.append("raw completed output tokens do not match summary metrics")
     _validate_recomputed_metrics(rows, metrics, blockers)
@@ -291,6 +429,10 @@ def _validate_recomputed_metrics(
                 error=str(row["error"]) if row.get("error") is not None else None,
                 started_offset_ms=float(row["started_offset_ms"]),
                 completed_offset_ms=float(row["completed_offset_ms"]),
+                scheduled_offset_ms=float(row["scheduled_offset_ms"]),
+                dispatch_offset_ms=float(row["dispatch_offset_ms"]),
+                queue_delay_ms=float(row["queue_delay_ms"]),
+                end_to_end_latency_ms=float(row["end_to_end_latency_ms"]),
             )
             for row in rows
         ]
@@ -322,6 +464,15 @@ def _validate_recomputed_metrics(
         ("throughput", "requests_per_second"),
         ("throughput", "estimated_elapsed_seconds"),
         ("throughput", "measured_elapsed_seconds"),
+        ("queue_delay_ms", "mean"),
+        ("queue_delay_ms", "p50"),
+        ("queue_delay_ms", "p95"),
+        ("queue_delay_ms", "p99"),
+        ("queue_delay_ms", "max"),
+        ("end_to_end_latency_ms", "mean"),
+        ("end_to_end_latency_ms", "p50"),
+        ("end_to_end_latency_ms", "p95"),
+        ("end_to_end_latency_ms", "p99"),
     ]
     for path in paths:
         expected = _nested(recomputed, path)
@@ -348,7 +499,7 @@ def _numbers_match(actual: object, expected: object) -> bool:
 def _raw_span_seconds(records: list[RequestMetrics]) -> float:
     if not records:
         return 0.0
-    started = min(record.started_offset_ms for record in records)
+    started = min(record.scheduled_offset_ms for record in records)
     completed = max(record.completed_offset_ms for record in records)
     return max(completed - started, 0.0) / 1000
 

@@ -44,6 +44,76 @@ def test_validate_benchmark_config_accepts_prompt_file_without_input_tokens() ->
     validate_benchmark_config(config)
 
 
+def test_validate_benchmark_config_accepts_open_loop_client_settings() -> None:
+    config = {
+        "run": {
+            "measured_requests": 4,
+            "client_processes": 2,
+            "queue_delay_warning_ms": 5.0,
+        },
+        "endpoint": {"base_url": "mock://local"},
+        "model": {"name": "mock-model"},
+        "workload": {
+            "input_tokens": [16],
+            "output_tokens": [8],
+            "concurrency": [2, 4],
+            "request_schedule": "open-loop",
+            "request_rate_rps": 100.0,
+        },
+    }
+
+    validate_benchmark_config(config)
+
+
+def test_validate_benchmark_config_rejects_invalid_client_schedule() -> None:
+    config = {
+        "run": {"measured_requests": 4, "client_processes": 2},
+        "endpoint": {"base_url": "mock://local"},
+        "model": {"name": "mock-model"},
+        "workload": {
+            "input_tokens": [16],
+            "output_tokens": [8],
+            "concurrency": [1],
+            "request_schedule": "open-loop",
+        },
+    }
+
+    with pytest.raises(ConfigError) as exc_info:
+        validate_benchmark_config(config)
+
+    message = str(exc_info.value)
+    assert "workload.request_rate_rps is required" in message
+    assert "run.client_processes must not exceed" in message
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), float("-inf")])
+def test_validate_benchmark_config_rejects_nonfinite_client_values(invalid: float) -> None:
+    config = {
+        "run": {
+            "measured_requests": 4,
+            "timeout_seconds": invalid,
+            "queue_delay_warning_ms": invalid,
+        },
+        "endpoint": {"base_url": "mock://local"},
+        "model": {"name": "mock-model"},
+        "workload": {
+            "input_tokens": [16],
+            "output_tokens": [8],
+            "concurrency": [1],
+            "request_schedule": "open-loop",
+            "request_rate_rps": invalid,
+        },
+    }
+
+    with pytest.raises(ConfigError) as exc_info:
+        validate_benchmark_config(config)
+
+    message = str(exc_info.value)
+    assert "run.timeout_seconds must be a positive number" in message
+    assert "run.queue_delay_warning_ms must be a non-negative number" in message
+    assert "workload.request_rate_rps must be a positive number" in message
+
+
 def test_sanitize_resolved_config_redacts_remote_endpoint_and_secret_like_keys() -> None:
     config = {
         "endpoint": {
