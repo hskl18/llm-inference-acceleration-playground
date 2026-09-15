@@ -51,6 +51,7 @@ version = {attr = "llm_accel._version.__version__"}
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = ["realtime_mock: keep real wall-clock sleeps in the mock backend"]
 
 [tool.ruff]
 line-length = 180

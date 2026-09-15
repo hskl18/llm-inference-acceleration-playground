@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from urllib import request
 
@@ -32,15 +33,22 @@ class CompletionResult:
 class MockOpenAIClient:
     """Deterministic local client for smoke tests and contributor onboarding."""
 
+    # Real waiting keeps request offsets consistent with the synthetic latencies.
+    # Unit tests replace this class attribute with a no-op; reported timings do not change.
+    sleep: Callable[[float], None] = staticmethod(time.sleep)
+
     def __init__(
         self,
         model: str = "mock-model",
         backend: str = "mock",
         request_timeout_seconds: float = 120.0,
+        sleep: Callable[[float], None] | None = None,
     ) -> None:
         self.model = model
         self.backend = backend
         self.request_timeout_seconds = request_timeout_seconds
+        if sleep is not None:
+            self.sleep = sleep
 
     def complete(self, prompt: str, max_tokens: int, request_index: int = 0, stream: bool = True) -> CompletionResult:
         input_tokens = max(len(prompt.split()), 1)
@@ -50,9 +58,9 @@ class MockOpenAIClient:
         tpot_ms = 2.0 + min(output_tokens, 512) * 0.002
         total_latency_ms = ttft_ms + tpot_ms * max(output_tokens - 1, 0)
         if total_latency_ms > self.request_timeout_seconds * 1000:
-            time.sleep(self.request_timeout_seconds)
+            self.sleep(self.request_timeout_seconds)
             raise TimeoutError(f"request timed out after {self.request_timeout_seconds} seconds")
-        time.sleep(total_latency_ms / 1000)
+        self.sleep(total_latency_ms / 1000)
         prompt_terms = [term.strip(".,:;!?").lower() for term in prompt.split() if term.strip(".,:;!?")]
         seed_terms = prompt_terms[: min(8, len(prompt_terms))] or ["mock"]
         generated = [seed_terms[index % len(seed_terms)] if index < len(seed_terms) else f"tok{index}" for index in range(output_tokens)]

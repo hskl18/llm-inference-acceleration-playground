@@ -57,6 +57,7 @@ def test_latency_benchmark_preserves_raw_artifacts_when_report_generation_fails(
     assert not (output_dir / "summary.md").exists()
 
 
+@pytest.mark.realtime_mock
 def test_open_loop_records_queue_delay_and_warns_on_client_saturation(tmp_path) -> None:
     output_dir = tmp_path / "open-loop"
 
