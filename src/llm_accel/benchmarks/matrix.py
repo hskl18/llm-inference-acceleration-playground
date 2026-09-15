@@ -139,9 +139,10 @@ def run_matrix(
     comparison_error: str | None = None
     if len(summary_paths) >= 2:
         try:
+            comparison_dir = _contained_path(base_output, "comparison")
             comparison = compare_run_summaries(
                 summary_paths,
-                base_output / "comparison",
+                comparison_dir,
                 source_root=base_output,
             )
         except Exception as exc:
@@ -374,6 +375,7 @@ def _run_planned_cell(
     dtype = str(profile_config.get("dtype", get_path(config, "model.dtype", "unknown")))
     quantization = str(profile_config.get("quantization", "none"))
     run_dir = _contained_path(base_output, str(planned["run_id"]))
+    _contained_path(base_output, str(planned["run_id"]), "plots")
     command_path = Path(str(planned["server_command_file"]))
     command_bytes = command_path.read_bytes()
     command_sha256 = hashlib.sha256(command_bytes).hexdigest()

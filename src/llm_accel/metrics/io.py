@@ -6,9 +6,22 @@ import os
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterable, Iterator, TextIO
+from typing import Iterable, Iterator, TextIO, cast
 
 from llm_accel.metrics.schemas import RequestMetrics
+
+
+def _prepare_artifact_parent(path: Path) -> None:
+    current = path.parent
+    while True:
+        if current.is_symlink():
+            raise ValueError(f"artifact parent path must not contain a symlink: {current}")
+        if current.exists() or current == current.parent:
+            break
+        current = current.parent
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.parent.is_symlink():
+        raise ValueError(f"artifact parent path must not be a symlink: {path.parent}")
 
 
 def write_json(path: Path, payload: object) -> None:
@@ -17,7 +30,7 @@ def write_json(path: Path, payload: object) -> None:
 
 @contextmanager
 def _atomic_text_writer(path: Path, *, newline: str | None = None) -> Iterator[TextIO]:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _prepare_artifact_parent(path)
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -30,7 +43,7 @@ def _atomic_text_writer(path: Path, *, newline: str | None = None) -> Iterator[T
             delete=False,
         ) as handle:
             temporary_path = Path(handle.name)
-            yield handle
+            yield cast(TextIO, handle)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary_path, path)
@@ -57,7 +70,7 @@ def write_json_atomic(path: Path, payload: object) -> None:
 
 
 def write_bytes_atomic(path: Path, payload: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _prepare_artifact_parent(path)
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(

@@ -6,7 +6,11 @@ import time
 from dataclasses import dataclass
 from urllib import request
 
-from llm_accel.metrics.token_counting import TokenCounter, load_token_counter
+from llm_accel.metrics.token_counting import (
+    TOKENIZERS_ENCODE_METHOD,
+    TokenCounter,
+    load_token_counter,
+)
 
 
 @dataclass(frozen=True)
@@ -86,11 +90,18 @@ class OpenAICompatibleClient:
         self.request_timeout_seconds = request_timeout_seconds
         self.api_kind = api_kind
         self.defer_token_count = defer_token_count
+        self.output_token_count_method = (
+            token_counter.method if token_counter is not None else TOKENIZERS_ENCODE_METHOD
+        )
         self.token_counter: TokenCounter | None
         if token_counter is not None:
             self.token_counter = token_counter
         elif backend == "vllm" and tokenizer is not None and tokenizer_revision is not None:
-            self.token_counter = load_token_counter(tokenizer, tokenizer_revision)
+            self.token_counter = (
+                None
+                if defer_token_count
+                else load_token_counter(tokenizer, tokenizer_revision)
+            )
         elif backend == "vllm":
             raise ValueError("vLLM benchmarks require tokenizer and tokenizer_revision")
         else:
@@ -233,19 +244,20 @@ class OpenAICompatibleClient:
         output_text: str,
         usage: object,
     ) -> tuple[int, int, str]:
+        if self.defer_token_count and self.backend == "vllm":
+            prompt_tokens = usage.get("prompt_tokens") if isinstance(usage, dict) else None
+            completion_tokens = usage.get("completion_tokens") if isinstance(usage, dict) else None
+            if not isinstance(prompt_tokens, int):
+                raise ValueError(
+                    "vLLM benchmark responses must include server prompt token usage"
+                )
+            return (
+                completion_tokens if isinstance(completion_tokens, int) else 0,
+                prompt_tokens,
+                f"prompt=server_usage;output={self.output_token_count_method}",
+            )
         if self.token_counter is not None:
             prompt_tokens = usage.get("prompt_tokens") if isinstance(usage, dict) else None
-            if self.defer_token_count:
-                completion_tokens = usage.get("completion_tokens") if isinstance(usage, dict) else None
-                if not isinstance(prompt_tokens, int):
-                    raise ValueError(
-                        "vLLM benchmark responses must include server prompt token usage"
-                    )
-                return (
-                    completion_tokens if isinstance(completion_tokens, int) else 0,
-                    prompt_tokens,
-                    f"prompt=server_usage;output={self.token_counter.method}",
-                )
             if isinstance(prompt_tokens, int):
                 return (
                     self.token_counter.count(output_text),

@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -56,8 +57,14 @@ def _summary(
     client_configuration=None,
     quality_gate=None,
     metadata_overrides=None,
-) -> None:
+    write_profile_artifact: bool = True,
+) -> Path:
     profile = profile or _profile("baseline")
+    if path.name != "summary.json":
+        path = path.parent / path.stem / "summary.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if write_profile_artifact:
+        write_optimization_profile(path.parent, profile)
     payload = {
         "schema_version": "0.2",
         "metadata": {
@@ -95,13 +102,17 @@ def _summary(
     if metadata_overrides:
         payload["metadata"].update(metadata_overrides)
     path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
 
 
 def _three_repetitions(tmp_path, profile, *, start: float):
     paths = []
     for repetition in range(3):
-        path = tmp_path / f"{profile.name}-{repetition}.json"
-        _summary(path, start + repetition * 10.0, profile=profile)
+        path = _summary(
+            tmp_path / f"{profile.name}-{repetition}.json",
+            start + repetition * 10.0,
+            profile=profile,
+        )
         paths.append(path)
     return paths
 
@@ -131,12 +142,22 @@ def test_comparison_rejects_inline_profile_that_differs_from_artifact(tmp_path) 
     treatment = _profile("prefix-cache", prefix_cache=True)
     write_optimization_profile(run_dir, baseline)
     summary_path = run_dir / "summary.json"
-    _summary(summary_path, 100.0, profile=treatment)
+    _summary(
+        summary_path,
+        100.0,
+        profile=treatment,
+        write_profile_artifact=False,
+    )
     control_dir = tmp_path / "control"
     control_dir.mkdir()
     write_optimization_profile(control_dir, baseline)
     control_path = control_dir / "summary.json"
-    _summary(control_path, 100.0, profile=baseline)
+    _summary(
+        control_path,
+        100.0,
+        profile=baseline,
+        write_profile_artifact=False,
+    )
 
     report = compare_run_summaries([summary_path, control_path], tmp_path / "out")
 
@@ -202,9 +223,8 @@ def test_strict_comparison_blocks_schedule_client_and_quality_mismatches(
 ) -> None:
     baseline = _profile("baseline")
     paths = _three_repetitions(tmp_path, baseline, start=100.0)
-    changed = tmp_path / "changed.json"
     kwargs = {field: alternate}
-    _summary(changed, 120.0, profile=baseline, **kwargs)
+    changed = _summary(tmp_path / "changed.json", 120.0, profile=baseline, **kwargs)
     paths.append(changed)
 
     report = compare_run_summaries(paths, tmp_path / "out")
@@ -274,10 +294,8 @@ def test_failed_runs_do_not_count_as_valid_repetitions(tmp_path) -> None:
 def test_duplicate_summary_paths_cannot_inflate_repetitions(tmp_path) -> None:
     baseline = _profile("baseline")
     treatment = _profile("prefix-cache", prefix_cache=True)
-    baseline_path = tmp_path / "baseline.json"
-    treatment_path = tmp_path / "treatment.json"
-    _summary(baseline_path, 100.0, profile=baseline)
-    _summary(treatment_path, 150.0, profile=treatment)
+    baseline_path = _summary(tmp_path / "baseline.json", 100.0, profile=baseline)
+    treatment_path = _summary(tmp_path / "treatment.json", 150.0, profile=treatment)
 
     report = compare_run_summaries(
         [baseline_path] * 3 + [treatment_path] * 3,
@@ -342,8 +360,12 @@ def test_complete_environment_metadata_must_reproduce_fingerprint(tmp_path) -> N
     treatment = _profile("prefix-cache", environment=fingerprint, prefix_cache=True)
     paths = []
     for repetition, profile in enumerate([baseline] * 3 + [treatment] * 3):
-        path = tmp_path / f"run-{repetition}.json"
-        _summary(path, 100.0 + repetition, profile=profile, metadata_overrides=environment)
+        path = _summary(
+            tmp_path / f"run-{repetition}.json",
+            100.0 + repetition,
+            profile=profile,
+            metadata_overrides=environment,
+        )
         paths.append(path)
     payload = json.loads(paths[0].read_text(encoding="utf-8"))
     payload["metadata"]["gpu_name"] = "tampered-gpu"
