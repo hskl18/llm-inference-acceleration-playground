@@ -27,6 +27,7 @@ from llm_accel.reports.ranking_audit import audit_performance_ranking
 from llm_accel.reports.validation import validate_run_dir
 from llm_accel.serving.capabilities import get_capability, list_capabilities
 from llm_accel.serving.health import check_endpoint_health
+from llm_accel.serving.openai_client import DEFAULT_API_KEY_ENV
 from llm_accel.serving.profiles import backend_profile
 from llm_accel.serving.vllm import build_vllm_command
 from llm_accel.serving.vllm_plan import create_vllm_benchmark_plan
@@ -68,6 +69,11 @@ def _add_bench_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--request-rate-rps", type=float, help="Target arrivals per second for open-loop scheduling")
     parser.add_argument("--client-processes", type=int, default=1, help="Load-generator process count")
     parser.add_argument(
+        "--api-key-env",
+        default=DEFAULT_API_KEY_ENV,
+        help="Environment variable holding the endpoint API key",
+    )
+    parser.add_argument(
         "--ignore-eos",
         action=argparse.BooleanOptionalAction,
         default=None,
@@ -90,6 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--backend", default="mock")
     doctor.add_argument("--base-url", default="mock://local")
     doctor.add_argument("--timeout-seconds", type=float, default=5.0)
+    doctor.add_argument("--api-key-env", default=DEFAULT_API_KEY_ENV)
     doctor.set_defaults(func=cmd_doctor)
 
     bench = subparsers.add_parser("bench", help="Run benchmarks")
@@ -205,6 +212,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_vllm_optimization_args(vllm_validate)
     vllm_validate.add_argument("--timeout-seconds", type=float, default=5.0)
     vllm_validate.add_argument("--smoke", action="store_true")
+    vllm_validate.add_argument("--api-key-env", default=DEFAULT_API_KEY_ENV)
     vllm_validate.add_argument("--output-dir", default="results/runs/vllm-validation")
     vllm_validate.set_defaults(func=cmd_vllm_validate)
     vllm_plan = vllm_sub.add_parser("plan", help="Write a vLLM hardware benchmark runbook")
@@ -239,6 +247,7 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--output-dir", default="results/runs/quantization-comparison")
     compare.add_argument("--hardware-label", default="local")
     compare.add_argument("--sanity-prompts", default="", help="Optional plain-text or JSONL prompt file")
+    compare.add_argument("--api-key-env", default=DEFAULT_API_KEY_ENV)
     compare.set_defaults(func=cmd_quantization_compare)
 
     eval_parser = subparsers.add_parser("eval", help="Run lightweight output quality checks")
@@ -251,6 +260,7 @@ def build_parser() -> argparse.ArgumentParser:
     sanity.add_argument("--output-dir", default="results/runs/quality-sanity")
     sanity.add_argument("--max-tokens", type=int, default=64)
     sanity.add_argument("--stream", action="store_true")
+    sanity.add_argument("--api-key-env", default=DEFAULT_API_KEY_ENV)
     sanity.set_defaults(func=cmd_eval_sanity)
     task = eval_sub.add_parser("task", help="Run validator-based task evaluation")
     task.add_argument("--base-url", default="mock://local")
@@ -262,6 +272,7 @@ def build_parser() -> argparse.ArgumentParser:
     task.add_argument("--output-dir", default="results/runs/task-eval")
     task.add_argument("--max-tokens", type=int, default=64)
     task.add_argument("--stream", action="store_true")
+    task.add_argument("--api-key-env", default=DEFAULT_API_KEY_ENV)
     task.set_defaults(func=cmd_eval_task)
 
     speculative = subparsers.add_parser("speculative", help="Speculative decoding experiments")
@@ -290,7 +301,11 @@ def _add_vllm_optimization_args(parser: argparse.ArgumentParser) -> None:
 def cmd_doctor(args: argparse.Namespace) -> int:
     capability = get_capability(args.backend)
     memory = sample_gpu_memory()
-    endpoint = check_endpoint_health(args.base_url, timeout_seconds=args.timeout_seconds)
+    endpoint = check_endpoint_health(
+        args.base_url,
+        timeout_seconds=args.timeout_seconds,
+        api_key_env=args.api_key_env,
+    )
     payload = {
         "project_version": __version__,
         "python": sys.version.split()[0],
@@ -337,6 +352,7 @@ def cmd_bench_latency(args: argparse.Namespace) -> int:
         client_processes=args.client_processes,
         queue_delay_warning_ms=args.queue_delay_warning_ms,
         ignore_eos=args.ignore_eos,
+        api_key_env=args.api_key_env,
     )
     print(json.dumps({"output_dir": output_dir, "metrics": summary["metrics"]}, indent=2, sort_keys=True))
     return 0
@@ -373,6 +389,7 @@ def cmd_bench_throughput(args: argparse.Namespace) -> int:
         client_processes=args.client_processes,
         queue_delay_warning_ms=args.queue_delay_warning_ms,
         ignore_eos=args.ignore_eos,
+        api_key_env=args.api_key_env,
     )
     print(json.dumps({"output_dir": output_dir, "throughput": summary["metrics"]["throughput"]}, indent=2, sort_keys=True))
     return 0
@@ -558,6 +575,7 @@ def cmd_vllm_validate(args: argparse.Namespace) -> int:
         num_speculative_tokens=args.num_speculative_tokens,
         timeout_seconds=args.timeout_seconds,
         smoke=args.smoke,
+        api_key_env=args.api_key_env,
     )
     print(
         json.dumps(
@@ -615,6 +633,7 @@ def cmd_quantization_compare(args: argparse.Namespace) -> int:
         backend=args.backend,
         hardware_label=args.hardware_label,
         sanity_prompts=sanity_prompts,
+        api_key_env=args.api_key_env,
     )
     print(json.dumps({"output_dir": args.output_dir, "modes": report["modes"]}, indent=2, sort_keys=True))
     return 0
@@ -630,6 +649,7 @@ def cmd_eval_sanity(args: argparse.Namespace) -> int:
         output_dir=args.output_dir,
         max_tokens=args.max_tokens,
         stream=args.stream,
+        api_key_env=args.api_key_env,
     )
     print(json.dumps({"output_dir": args.output_dir, "passed": report["passed"]}, indent=2, sort_keys=True))
     return 0
@@ -646,6 +666,7 @@ def cmd_eval_task(args: argparse.Namespace) -> int:
         output_dir=args.output_dir,
         max_tokens=args.max_tokens,
         stream=args.stream,
+        api_key_env=args.api_key_env,
     )
     print(
         json.dumps(

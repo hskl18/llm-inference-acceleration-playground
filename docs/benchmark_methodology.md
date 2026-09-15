@@ -122,6 +122,9 @@ Sweep and matrix configs are validated before any run starts.
 Required endpoint, model, run, and workload fields must be present.
 Request counts, timeouts, token lengths, offered request rate, concurrency, process counts, and queue thresholds are checked where applicable.
 Endpoint secrets must be referenced through `api_key_env`, not embedded directly in config files.
+`endpoint.api_key_env` names the environment variable the client reads for the bearer token, and a matrix profile may override it because profiles use distinct endpoints.
+The CLI equivalent is `--api-key-env`; it defaults to `OPENAI_API_KEY`.
+Only the variable name is used and recorded, never the value, and requests are sent without an Authorization header when the variable is unset.
 
 ## Optimization Profiles
 

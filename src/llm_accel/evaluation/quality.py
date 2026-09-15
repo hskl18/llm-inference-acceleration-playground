@@ -8,7 +8,7 @@ from llm_accel.evaluation.io import write_mapping_jsonl
 from llm_accel.metrics.io import write_json, write_text_atomic
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.metrics.schemas import SCHEMA_VERSION
-from llm_accel.serving.openai_client import OpenAICompatibleClient
+from llm_accel.serving.openai_client import DEFAULT_API_KEY_ENV, OpenAICompatibleClient
 
 
 def evaluate_prompts(
@@ -20,11 +20,17 @@ def evaluate_prompts(
     backend: str = "openai-compatible",
     max_tokens: int = 64,
     stream: bool = False,
+    api_key_env: str = DEFAULT_API_KEY_ENV,
 ) -> dict[str, object]:
     if not prompts:
         raise ValueError("prompts must not be empty")
 
-    client = OpenAICompatibleClient(base_url=base_url, model=model, backend=backend)
+    client = OpenAICompatibleClient(
+        base_url=base_url,
+        model=model,
+        backend=backend,
+        api_key_env=api_key_env,
+    )
     checks = []
     outputs = []
     for index, prompt in enumerate(prompts):

@@ -117,6 +117,15 @@ class _NullRoleChunkHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
 
+    def do_GET(self) -> None:  # noqa: N802
+        self.headers_seen.append(dict(self.headers.items()))
+        body = b'{"object":"list","data":[]}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _event(self, payload: dict[str, object]) -> None:
         self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode())
         self.wfile.flush()
@@ -765,3 +774,86 @@ def test_varying_output_lengths_are_warned_about(tmp_path) -> None:
         server.shutdown()
 
     assert any("Output token counts vary" in warning for warning in summary["warnings"])
+
+
+def test_configured_api_key_env_is_used_and_never_persisted(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("BENCH_KEY", "secret-token-value")
+    monkeypatch.setenv("OPENAI_API_KEY", "wrong-default-key")
+    server, base_url = _start_null_role_server()
+    try:
+        run_latency_benchmark(
+            base_url=base_url,
+            model="mock",
+            backend="openai-compatible",
+            concurrency=1,
+            input_tokens=2,
+            output_tokens=10,
+            output_dir=tmp_path / "auth",
+            request_count=1,
+            warmup_count=1,
+            prompt_texts=["hello"],
+            api_key_env="BENCH_KEY",
+        )
+    finally:
+        server.shutdown()
+
+    authorizations = {headers.get("Authorization") for headers in _NullRoleChunkHandler.headers_seen}
+    assert authorizations == {"Bearer secret-token-value"}
+    written = "".join(
+        path.read_text(encoding="utf-8", errors="ignore")
+        for path in (tmp_path / "auth").rglob("*")
+        if path.is_file()
+    )
+    assert "secret-token-value" not in written
+
+
+def test_endpoint_health_uses_the_configured_api_key_env(monkeypatch) -> None:
+    from llm_accel.serving.health import check_endpoint_health
+
+    monkeypatch.setenv("BENCH_KEY", "secret-token-value")
+    server, base_url = _start_null_role_server()
+    try:
+        health = check_endpoint_health(base_url, timeout_seconds=2.0, api_key_env="BENCH_KEY")
+    finally:
+        server.shutdown()
+
+    assert health["status"] == "healthy"
+    assert _NullRoleChunkHandler.headers_seen[-1]["Authorization"] == "Bearer secret-token-value"
+
+
+def test_sweep_config_api_key_env_reaches_the_endpoint(tmp_path, monkeypatch) -> None:
+    from llm_accel.benchmarks.sweep import run_sweep
+
+    monkeypatch.setenv("SWEEP_KEY", "sweep-secret")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    server, base_url = _start_null_role_server()
+    config_path = tmp_path / "sweep.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "run:",
+                "  name: auth-sweep",
+                "  measured_requests: 1",
+                "endpoint:",
+                f"  base_url: {base_url}",
+                "  api_key_env: SWEEP_KEY",
+                "  backend: openai-compatible",
+                "model:",
+                "  name: mock",
+                "workload:",
+                "  input_tokens: [8]",
+                "  output_tokens: [2]",
+                "  concurrency: [1]",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    try:
+        run_sweep(config_path, tmp_path / "sweep")
+    finally:
+        server.shutdown()
+
+    assert {headers.get("Authorization") for headers in _NullRoleChunkHandler.headers_seen} == {
+        "Bearer sweep-secret"
+    }

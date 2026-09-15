@@ -26,7 +26,11 @@ from llm_accel.metrics.token_counting import (
 )
 from llm_accel.reports.markdown import write_summary_markdown
 from llm_accel.reports.plots import write_latency_svg
-from llm_accel.serving.openai_client import OpenAICompatibleClient, count_generated_tokens
+from llm_accel.serving.openai_client import (
+    DEFAULT_API_KEY_ENV,
+    OpenAICompatibleClient,
+    count_generated_tokens,
+)
 from llm_accel.serving.versions import detect_backend_version
 from llm_accel.workloads.prompts import (
     estimate_prompt_tokens,
@@ -61,6 +65,7 @@ class _ClientConfig:
     tokenizer: str | None
     tokenizer_revision: str | None
     ignore_eos: bool = False
+    api_key_env: str = DEFAULT_API_KEY_ENV
 
 
 @dataclass(frozen=True)
@@ -112,6 +117,7 @@ def _execute_request(
         tokenizer_revision=config.tokenizer_revision,
         defer_token_count=config.backend == "vllm",
         ignore_eos=config.ignore_eos,
+        api_key_env=config.api_key_env,
     )
     try:
         result = client.complete(spec.prompt, config.output_tokens, spec.index, stream=config.stream)
@@ -462,6 +468,7 @@ def run_latency_benchmark(
     client_processes: int = 1,
     queue_delay_warning_ms: float = 10.0,
     ignore_eos: bool | None = None,
+    api_key_env: str = DEFAULT_API_KEY_ENV,
 ) -> dict[str, object]:
     if concurrency <= 0:
         raise ValueError("concurrency must be positive")
@@ -518,6 +525,7 @@ def run_latency_benchmark(
             tokenizer=tokenizer,
             tokenizer_revision=tokenizer_revision,
             ignore_eos=resolved_ignore_eos,
+            api_key_env=api_key_env,
         )
         warmup_prompts = (
             fixed_prompt_batch(prompt_texts, warmup_count)
@@ -569,6 +577,7 @@ def run_latency_benchmark(
         tokenizer=tokenizer,
         tokenizer_revision=tokenizer_revision,
         ignore_eos=resolved_ignore_eos,
+        api_key_env=api_key_env,
     )
     measured = _run_measured_requests(
         prompts=prompts,

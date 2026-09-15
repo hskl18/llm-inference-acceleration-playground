@@ -5,8 +5,14 @@ import time
 from urllib import error as urllib_error
 from urllib import request
 
+from llm_accel.serving.openai_client import DEFAULT_API_KEY_ENV, bearer_auth_header
 
-def check_endpoint_health(base_url: str, timeout_seconds: float = 5.0) -> dict[str, object]:
+
+def check_endpoint_health(
+    base_url: str,
+    timeout_seconds: float = 5.0,
+    api_key_env: str = DEFAULT_API_KEY_ENV,
+) -> dict[str, object]:
     """Probe GET {base_url}/models.
 
     status is "healthy" only for a 2xx response with a JSON body, "unauthorized" for 401 or 403,
@@ -24,7 +30,11 @@ def check_endpoint_health(base_url: str, timeout_seconds: float = 5.0) -> dict[s
 
     started = time.perf_counter()
     url = f"{base_url.rstrip('/')}/models"
-    req = request.Request(url, method="GET", headers={"Accept": "application/json"})
+    req = request.Request(
+        url,
+        method="GET",
+        headers={"Accept": "application/json", **bearer_auth_header(api_key_env)},
+    )
     status_code: int | None = None
     error: str | None = None
     try:

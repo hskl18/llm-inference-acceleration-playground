@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from llm_accel.serving.openai_client import OpenAICompatibleClient
+from llm_accel.serving.openai_client import DEFAULT_API_KEY_ENV, OpenAICompatibleClient
 
 
 DEFAULT_SANITY_PROMPTS = [
@@ -17,8 +17,14 @@ def run_quality_sanity_check(
     quantization: str,
     prompts: list[str] | None = None,
     max_tokens: int = 64,
+    api_key_env: str = DEFAULT_API_KEY_ENV,
 ) -> dict[str, object]:
-    client = OpenAICompatibleClient(base_url=base_url, model=model, backend=backend)
+    client = OpenAICompatibleClient(
+        base_url=base_url,
+        model=model,
+        backend=backend,
+        api_key_env=api_key_env,
+    )
     checks = []
     selected_prompts = prompts or DEFAULT_SANITY_PROMPTS
     for index, prompt in enumerate(selected_prompts):

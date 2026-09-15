@@ -14,6 +14,15 @@ from llm_accel.metrics.token_counting import (
 )
 
 
+DEFAULT_API_KEY_ENV = "OPENAI_API_KEY"
+
+
+def bearer_auth_header(api_key_env: str = DEFAULT_API_KEY_ENV) -> dict[str, str]:
+    """Read the API key from the configured environment variable; the value is never stored."""
+    api_key = os.environ.get(api_key_env)
+    return {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+
 @dataclass(frozen=True)
 class CompletionResult:
     output_text: str
@@ -93,6 +102,7 @@ class OpenAICompatibleClient:
         token_counter: TokenCounter | None = None,
         defer_token_count: bool = False,
         ignore_eos: bool = False,
+        api_key_env: str = DEFAULT_API_KEY_ENV,
     ) -> None:
         if api_kind not in {"chat", "completion"}:
             raise ValueError("api_kind must be 'chat' or 'completion'")
@@ -103,6 +113,7 @@ class OpenAICompatibleClient:
         self.api_kind = api_kind
         self.defer_token_count = defer_token_count
         self.ignore_eos = ignore_eos
+        self.api_key_env = api_key_env
         self.output_token_count_method = (
             token_counter.method if token_counter is not None else TOKENIZERS_ENCODE_METHOD
         )
@@ -132,11 +143,7 @@ class OpenAICompatibleClient:
         return self._complete_non_streaming(prompt, max_tokens)
 
     def _headers(self) -> dict[str, str]:
-        headers = {"Content-Type": "application/json"}
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
-        return headers
+        return {"Content-Type": "application/json", **bearer_auth_header(self.api_key_env)}
 
     def _complete_non_streaming(self, prompt: str, max_tokens: int) -> CompletionResult:
         started = time.perf_counter()
