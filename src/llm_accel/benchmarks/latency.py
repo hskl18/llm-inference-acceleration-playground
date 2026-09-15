@@ -549,6 +549,7 @@ def run_latency_benchmark(
     if effective_backend == "vllm":
         if tokenizer is None or tokenizer_revision is None:
             raise ValueError("vLLM benchmarks require tokenizer and tokenizer_revision")
+        # Resolve the tokenizer before measurement so its download cannot inflate request latency.
         load_token_counter(tokenizer, tokenizer_revision)
         prompt_token_counts: list[int] = []
     else:
