@@ -5,6 +5,8 @@ import math
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 
 class ConfigError(ValueError):
     pass
@@ -13,75 +15,18 @@ class ConfigError(ValueError):
 LOCAL_ENDPOINT_PREFIXES = ("mock://", "http://localhost", "http://127.0.0.1")
 
 
-def _parse_scalar(value: str) -> Any:
-    value = value.strip()
-    if not value:
-        return ""
-    if value.startswith("[") and value.endswith("]"):
-        inner = value[1:-1].strip()
-        if not inner:
-            return []
-        return [_parse_scalar(item.strip()) for item in inner.split(",")]
-    if value.lower() in {"true", "false"}:
-        return value.lower() == "true"
-    if value.lower() in {"none", "null"}:
-        return None
-    try:
-        return int(value)
-    except ValueError:
-        pass
-    try:
-        return float(value)
-    except ValueError:
-        pass
-    return value.strip("\"'")
-
-
-def _load_minimal_yaml(text: str) -> dict[str, Any]:
-    root: dict[str, Any] = {}
-    stack: list[tuple[int, dict[str, Any]]] = [(-1, root)]
-
-    for line_no, raw_line in enumerate(text.splitlines(), start=1):
-        if not raw_line.strip() or raw_line.lstrip().startswith("#"):
-            continue
-        indent = len(raw_line) - len(raw_line.lstrip(" "))
-        line = raw_line.strip()
-        if ":" not in line:
-            raise ConfigError(f"invalid config line {line_no}: {raw_line}")
-        key, raw_value = line.split(":", 1)
-        key = key.strip()
-        if not key:
-            raise ConfigError(f"missing key on line {line_no}")
-
-        while stack and indent <= stack[-1][0]:
-            stack.pop()
-        if not stack:
-            raise ConfigError(f"invalid indentation on line {line_no}")
-
-        parent = stack[-1][1]
-        value_text = raw_value.strip()
-        if value_text == "":
-            child: dict[str, Any] = {}
-            parent[key] = child
-            stack.append((indent, child))
-        else:
-            parent[key] = _parse_scalar(value_text)
-    return root
-
-
 def load_config(path: str | Path) -> dict[str, Any]:
     config_path = Path(path)
     if not config_path.exists():
         raise ConfigError(f"config file does not exist: {config_path}")
     text = config_path.read_text(encoding="utf-8")
     if config_path.suffix.lower() == ".json":
-        return json.loads(text)
-
-    try:
-        import yaml  # type: ignore
-    except ImportError:
-        return _load_minimal_yaml(text)
-    loaded = yaml.safe_load(text)
+        loaded = json.loads(text)
+    else:
+        try:
+            loaded = yaml.safe_load(text)
+        except yaml.YAMLError as exc:
+            raise ConfigError(f"invalid YAML config {config_path}: {exc}") from exc
     if not isinstance(loaded, dict):
         raise ConfigError("config root must be a mapping")
     return loaded
@@ -108,6 +53,9 @@ def validate_benchmark_config(config: dict[str, Any]) -> None:
     if api_kind not in {"chat", "completion"}:
         errors.append("endpoint.api_kind must be 'chat' or 'completion'")
     _require_string(config, "model.name", errors)
+    for path in ["model.dtype", "model.quantization"]:
+        if _has_path(config, path):
+            _require_string(config, path, errors)
     _require_positive_int(config, "run.measured_requests", errors)
     _require_non_negative_int(config, "run.warmup_requests", errors, required=False)
     _require_positive_number(config, "run.timeout_seconds", errors, required=False)
@@ -184,6 +132,12 @@ def _sanitize_value(value: Any) -> Any:
     if isinstance(value, list):
         return [_sanitize_value(item) for item in value]
     return value
+
+
+def _has_path(config: dict[str, Any], path: str) -> bool:
+    parent, _, leaf = path.rpartition(".")
+    section = get_path(config, parent)
+    return isinstance(section, dict) and leaf in section
 
 
 def _require_string(config: dict[str, Any], path: str, errors: list[str]) -> None:

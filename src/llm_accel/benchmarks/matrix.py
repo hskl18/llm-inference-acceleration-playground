@@ -234,6 +234,10 @@ def _validate_matrix_config(config: dict[str, Any]) -> dict[str, dict[str, Any]]
     if missing:
         errors.append(f"profiles section is missing required roles: {', '.join(missing)}")
     for name, profile in profiles.items():
+        if "quantization" in profile and (
+            not isinstance(profile["quantization"], str) or not profile["quantization"].strip()
+        ):
+            errors.append(f"profiles.{name}.quantization must be a non-empty string such as 'none'")
         command = profile.get("server_command")
         command_file = profile.get("server_command_file")
         if not isinstance(command, str) and not isinstance(command_file, str):
