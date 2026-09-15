@@ -189,3 +189,24 @@ def test_claim_audit_binds_optimization_profile_to_command_flags(tmp_path) -> No
     report = audit_hardware_claim(tmp_path)
 
     assert any("optimization_profile does not match" in blocker for blocker in report["blockers"])
+
+
+def test_claim_audit_warns_when_vllm_output_length_was_not_fixed(tmp_path) -> None:
+    run_latency_benchmark(
+        base_url="mock://local",
+        model="mock-model",
+        concurrency=1,
+        input_tokens=16,
+        output_tokens=8,
+        output_dir=tmp_path,
+        request_count=2,
+    )
+    summary_path = tmp_path / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["metadata"]["backend"] = "vllm"
+    summary["metadata"]["ignore_eos"] = False
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    report = audit_hardware_claim(tmp_path)
+
+    assert any("ignore_eos" in warning for warning in report["warnings"])

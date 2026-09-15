@@ -101,6 +101,11 @@ def audit_hardware_claim(run_dir: str | Path) -> dict[str, object]:
         blockers.append(
             "vLLM hardware claims require server prompt usage and resolved-tokenizer output counts"
         )
+    if metadata.get("backend") == "vllm" and metadata.get("ignore_eos") is not True:
+        warnings.append(
+            "Output length was not fixed with ignore_eos, so generations could stop early; "
+            "per-request output lengths may differ across compared configurations."
+        )
     if metadata.get("dtype") in {None, "", "unknown", "auto"}:
         blockers.append("an exact dtype must be recorded")
     else:

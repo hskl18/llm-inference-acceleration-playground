@@ -92,6 +92,7 @@ class OpenAICompatibleClient:
         tokenizer_revision: str | None = None,
         token_counter: TokenCounter | None = None,
         defer_token_count: bool = False,
+        ignore_eos: bool = False,
     ) -> None:
         if api_kind not in {"chat", "completion"}:
             raise ValueError("api_kind must be 'chat' or 'completion'")
@@ -101,6 +102,7 @@ class OpenAICompatibleClient:
         self.request_timeout_seconds = request_timeout_seconds
         self.api_kind = api_kind
         self.defer_token_count = defer_token_count
+        self.ignore_eos = ignore_eos
         self.output_token_count_method = (
             token_counter.method if token_counter is not None else TOKENIZERS_ENCODE_METHOD
         )
@@ -232,6 +234,11 @@ class OpenAICompatibleClient:
         if stream:
             # Every OpenAI-compatible backend needs this to report usage on a streamed response.
             payload["stream_options"] = {"include_usage": True}
+        if self.ignore_eos:
+            # ignore_eos skips the tokenizer EOS token; min_tokens also blocks other stop tokens,
+            # so every request generates exactly max_tokens and configs stay comparable.
+            payload["ignore_eos"] = True
+            payload["min_tokens"] = max_tokens
         if self.api_kind == "completion":
             payload["prompt"] = prompt
         else:

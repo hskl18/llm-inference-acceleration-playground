@@ -421,6 +421,7 @@ def _run_planned_cell(
         request_rate_rps=_optional_float(get_path(config, "workload.request_rate_rps")),
         client_processes=int(get_path(config, "run.client_processes", 1)),
         queue_delay_warning_ms=float(get_path(config, "run.queue_delay_warning_ms", 10.0)),
+        ignore_eos=_optional_bool(get_path(config, "workload.ignore_eos")),
     )
     summary_metadata = summary.get("metadata")
     if not isinstance(summary_metadata, dict):
@@ -923,6 +924,10 @@ def _contained_path(
 
 def _optional_string(value: object) -> str | None:
     return str(value) if value not in {None, ""} else None
+
+
+def _optional_bool(value: object) -> bool | None:
+    return bool(value) if value is not None else None
 
 
 def _optional_int(value: object) -> int | None:

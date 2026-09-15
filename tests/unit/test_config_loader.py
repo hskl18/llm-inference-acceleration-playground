@@ -190,3 +190,20 @@ def test_sanitize_resolved_config_keeps_local_endpoint() -> None:
     sanitized = sanitize_resolved_config(config)
 
     assert sanitized["endpoint"]["base_url"] == "http://localhost:8000/v1"
+
+
+def test_validate_benchmark_config_rejects_non_boolean_ignore_eos() -> None:
+    config = {
+        "run": {"measured_requests": 2},
+        "endpoint": {"base_url": "mock://local"},
+        "model": {"name": "mock-model"},
+        "workload": {
+            "input_tokens": [8],
+            "output_tokens": [8],
+            "concurrency": [1],
+            "ignore_eos": "yes",
+        },
+    }
+
+    with pytest.raises(ConfigError, match="workload.ignore_eos must be a boolean"):
+        validate_benchmark_config(config)

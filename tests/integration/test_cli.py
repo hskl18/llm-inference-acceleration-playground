@@ -140,6 +140,7 @@ def test_cli_latency_benchmark_writes_outputs(tmp_path: Path) -> None:
         "api_kind": "chat",
         "client_processes": 1,
         "client_workers": 2,
+        "ignore_eos": False,
         "queue_delay_warning_ms": 10.0,
         "request_rate_rps": None,
         "request_schedule": "closed-loop",
@@ -859,3 +860,61 @@ def test_cli_matrix_and_ranking_audit(tmp_path: Path, capsys) -> None:
         "coordinated_omission_risk",
         "single_run_audit_failed",
     }
+
+
+def test_cli_latency_benchmark_records_ignore_eos_flag(tmp_path: Path) -> None:
+    output_dir = tmp_path / "ignore-eos"
+
+    assert (
+        main(
+            [
+                "bench",
+                "latency",
+                "--base-url",
+                "mock://local",
+                "--request-count",
+                "1",
+                "--output-tokens",
+                "2",
+                "--ignore-eos",
+                "--output-dir",
+                str(output_dir),
+            ]
+        )
+        == 0
+    )
+
+    summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
+    assert summary["metadata"]["ignore_eos"] is True
+    assert summary["metadata"]["client_configuration"]["ignore_eos"] is True
+
+
+def test_cli_sweep_threads_ignore_eos_from_config(tmp_path: Path) -> None:
+    config_path = tmp_path / "ignore-eos.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "run:",
+                "  name: ignore-eos-sweep",
+                "  measured_requests: 1",
+                "endpoint:",
+                "  base_url: mock://local",
+                "  backend: mock",
+                "model:",
+                "  name: mock-model",
+                "workload:",
+                "  input_tokens: [8]",
+                "  output_tokens: [2]",
+                "  concurrency: [1]",
+                "  ignore_eos: true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "sweep"
+
+    assert main(["bench", "sweep", "--config", str(config_path), "--output-dir", str(output_dir)]) == 0
+
+    summary = json.loads((output_dir / "c1-in8-out2" / "summary.json").read_text(encoding="utf-8"))
+    assert summary["metadata"]["ignore_eos"] is True

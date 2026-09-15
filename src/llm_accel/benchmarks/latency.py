@@ -60,6 +60,7 @@ class _ClientConfig:
     concurrency: int
     tokenizer: str | None
     tokenizer_revision: str | None
+    ignore_eos: bool = False
 
 
 @dataclass(frozen=True)
@@ -110,6 +111,7 @@ def _execute_request(
         tokenizer=config.tokenizer,
         tokenizer_revision=config.tokenizer_revision,
         defer_token_count=config.backend == "vllm",
+        ignore_eos=config.ignore_eos,
     )
     try:
         result = client.complete(spec.prompt, config.output_tokens, spec.index, stream=config.stream)
@@ -459,6 +461,7 @@ def run_latency_benchmark(
     request_rate_rps: float | None = None,
     client_processes: int = 1,
     queue_delay_warning_ms: float = 10.0,
+    ignore_eos: bool | None = None,
 ) -> dict[str, object]:
     if concurrency <= 0:
         raise ValueError("concurrency must be positive")
@@ -501,6 +504,9 @@ def run_latency_benchmark(
     memory_before = sample_gpu_memory()
     workload_mode = "fixed_prompts" if prompt_texts is not None else "synthetic"
     prompt_count = len(prompt_texts) if prompt_texts is not None else None
+    effective_backend = "mock" if base_url.startswith("mock://") else backend
+    # vLLM benchmark runs fix the output length by default; other backends must opt in.
+    resolved_ignore_eos = effective_backend == "vllm" if ignore_eos is None else bool(ignore_eos)
 
     if warmup_count:
         client = OpenAICompatibleClient(
@@ -511,6 +517,7 @@ def run_latency_benchmark(
             api_kind=api_kind,
             tokenizer=tokenizer,
             tokenizer_revision=tokenizer_revision,
+            ignore_eos=resolved_ignore_eos,
         )
         warmup_prompts = (
             fixed_prompt_batch(prompt_texts, warmup_count)
@@ -531,7 +538,6 @@ def run_latency_benchmark(
     unique_prompt_count = len(set(prompts))
     shared_tokens = shared_prefix_tokens(prompts)
     shared_fingerprint = shared_prefix_fingerprint(prompts)
-    effective_backend = "mock" if base_url.startswith("mock://") else backend
     if effective_backend == "vllm":
         if tokenizer is None or tokenizer_revision is None:
             raise ValueError("vLLM benchmarks require tokenizer and tokenizer_revision")
@@ -549,6 +555,7 @@ def run_latency_benchmark(
         "timeout_seconds": timeout_seconds,
         "api_kind": api_kind,
         "stream": stream,
+        "ignore_eos": resolved_ignore_eos,
     }
     client_config = _ClientConfig(
         base_url=base_url,
@@ -561,6 +568,7 @@ def run_latency_benchmark(
         concurrency=concurrency,
         tokenizer=tokenizer,
         tokenizer_revision=tokenizer_revision,
+        ignore_eos=resolved_ignore_eos,
     )
     measured = _run_measured_requests(
         prompts=prompts,
@@ -619,6 +627,7 @@ def run_latency_benchmark(
         "client_processes": client_processes,
         "client_workers": concurrency,
         "queue_delay_warning_ms": queue_delay_warning_ms,
+        "ignore_eos": resolved_ignore_eos,
         "client_configuration": client_configuration,
         "token_count_method": token_count_method,
     }
@@ -675,6 +684,7 @@ def run_latency_benchmark(
         client_processes=client_processes,
         client_workers=concurrency,
         queue_delay_warning_ms=queue_delay_warning_ms,
+        ignore_eos=resolved_ignore_eos,
         client_configuration=client_configuration,
         token_count_method=token_count_method,
     )
@@ -695,6 +705,7 @@ def run_latency_benchmark(
         request_count=request_count,
         unique_prompt_count=unique_prompt_count,
         token_count_method=token_count_method,
+        completed_output_tokens=[record.output_tokens for record in records if record.completed],
     )
     summary = {
         "schema_version": metadata.schema_version,
@@ -752,8 +763,15 @@ def _build_run_warnings(
     request_count: int,
     unique_prompt_count: int,
     token_count_method: str,
+    completed_output_tokens: list[int],
 ) -> list[str]:
     warnings: list[str] = []
+    if len(set(completed_output_tokens)) > 1:
+        warnings.append(
+            f"Output token counts vary across completed requests (min {min(completed_output_tokens)}, "
+            f"max {max(completed_output_tokens)}); throughput is not comparable across configurations "
+            "unless the output length is fixed with ignore_eos."
+        )
     if "whitespace_estimate" in token_count_method:
         warnings.append(
             "The endpoint reported no token usage, so token counts use a whitespace estimate; "

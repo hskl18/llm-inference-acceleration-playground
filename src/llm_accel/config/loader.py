@@ -67,6 +67,9 @@ def validate_benchmark_config(config: dict[str, Any]) -> None:
             _require_positive_int_list(config, "workload.input_tokens", errors)
     _require_positive_int_list(config, "workload.output_tokens", errors)
     _require_positive_int_list(config, "workload.concurrency", errors)
+    ignore_eos = get_path(config, "workload.ignore_eos")
+    if ignore_eos is not None and not isinstance(ignore_eos, bool):
+        errors.append("workload.ignore_eos must be a boolean")
     request_schedule = get_path(config, "workload.request_schedule", "closed-loop")
     if request_schedule not in {"closed-loop", "open-loop"}:
         errors.append("workload.request_schedule must be 'closed-loop' or 'open-loop'")

@@ -652,3 +652,116 @@ def test_backend_without_usage_falls_back_to_whitespace_with_a_warning(tmp_path)
     assert all(row["token_count_method"] == "whitespace_estimate" for row in rows)
     assert summary["metadata"]["token_count_method"] == "whitespace_estimate"
     assert any("whitespace estimate" in warning for warning in summary["warnings"])
+
+
+def test_vllm_runs_request_fixed_output_length_by_default(monkeypatch, tmp_path) -> None:
+    class CharacterTokenCounter:
+        method = "tokenizers.encode(add_special_tokens=false)"
+
+        def count(self, text: str) -> int:
+            return len(text)
+
+    monkeypatch.setattr(
+        "llm_accel.benchmarks.latency.load_token_counter",
+        lambda tokenizer, revision: CharacterTokenCounter(),
+    )
+    server, base_url = _start_null_role_server()
+    try:
+        summary = run_latency_benchmark(
+            base_url=base_url,
+            model="mock",
+            backend="vllm",
+            tokenizer="resolved-tokenizer",
+            tokenizer_revision="b" * 40,
+            concurrency=1,
+            input_tokens=2,
+            output_tokens=10,
+            output_dir=tmp_path / "ignore-eos",
+            request_count=1,
+            prompt_texts=["hello"],
+        )
+    finally:
+        server.shutdown()
+
+    payload = _NullRoleChunkHandler.payloads[0]
+    assert payload["ignore_eos"] is True
+    assert payload["min_tokens"] == 10
+    assert summary["metadata"]["ignore_eos"] is True
+    assert summary["metadata"]["client_configuration"]["ignore_eos"] is True
+
+
+def test_other_backends_only_fix_output_length_when_requested(tmp_path) -> None:
+    server, base_url = _start_null_role_server()
+    try:
+        default_summary = run_latency_benchmark(
+            base_url=base_url,
+            model="mock",
+            backend="openai-compatible",
+            concurrency=1,
+            input_tokens=2,
+            output_tokens=10,
+            output_dir=tmp_path / "default",
+            request_count=1,
+            prompt_texts=["hello"],
+        )
+        default_payload = _NullRoleChunkHandler.payloads[-1]
+        run_latency_benchmark(
+            base_url=base_url,
+            model="mock",
+            backend="openai-compatible",
+            concurrency=1,
+            input_tokens=2,
+            output_tokens=10,
+            output_dir=tmp_path / "opted-in",
+            request_count=1,
+            prompt_texts=["hello"],
+            ignore_eos=True,
+        )
+        opted_in_payload = _NullRoleChunkHandler.payloads[-1]
+    finally:
+        server.shutdown()
+
+    assert "ignore_eos" not in default_payload
+    assert "min_tokens" not in default_payload
+    assert default_summary["metadata"]["ignore_eos"] is False
+    assert opted_in_payload["ignore_eos"] is True
+    assert opted_in_payload["min_tokens"] == 10
+
+
+class _VariableLengthHandler(_NullRoleChunkHandler):
+    call_count = 0
+
+    def do_POST(self) -> None:  # noqa: N802
+        content_length = int(self.headers.get("Content-Length", "0"))
+        json.loads(self.rfile.read(content_length).decode("utf-8"))
+        type(self).call_count += 1
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        for index in range(self.call_count):
+            self._event({"choices": [{"delta": {"content": f"tok{index} "}}]})
+        self.wfile.write(b"data: [DONE]\n\n")
+        self.wfile.flush()
+
+
+def test_varying_output_lengths_are_warned_about(tmp_path) -> None:
+    _VariableLengthHandler.call_count = 0
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _VariableLengthHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}/v1"
+    try:
+        summary = run_latency_benchmark(
+            base_url=base_url,
+            model="mock",
+            backend="openai-compatible",
+            concurrency=1,
+            input_tokens=2,
+            output_tokens=8,
+            output_dir=tmp_path / "variable",
+            request_count=3,
+            prompt_texts=["hello"],
+        )
+    finally:
+        server.shutdown()
+
+    assert any("Output token counts vary" in warning for warning in summary["warnings"])

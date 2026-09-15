@@ -68,6 +68,12 @@ def _add_bench_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--request-rate-rps", type=float, help="Target arrivals per second for open-loop scheduling")
     parser.add_argument("--client-processes", type=int, default=1, help="Load-generator process count")
     parser.add_argument(
+        "--ignore-eos",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Force exactly --output-tokens generated tokens (default: on for vLLM backends)",
+    )
+    parser.add_argument(
         "--queue-delay-warning-ms",
         type=float,
         default=10.0,
@@ -330,6 +336,7 @@ def cmd_bench_latency(args: argparse.Namespace) -> int:
         request_rate_rps=args.request_rate_rps,
         client_processes=args.client_processes,
         queue_delay_warning_ms=args.queue_delay_warning_ms,
+        ignore_eos=args.ignore_eos,
     )
     print(json.dumps({"output_dir": output_dir, "metrics": summary["metrics"]}, indent=2, sort_keys=True))
     return 0
@@ -365,6 +372,7 @@ def cmd_bench_throughput(args: argparse.Namespace) -> int:
         request_rate_rps=args.request_rate_rps,
         client_processes=args.client_processes,
         queue_delay_warning_ms=args.queue_delay_warning_ms,
+        ignore_eos=args.ignore_eos,
     )
     print(json.dumps({"output_dir": output_dir, "throughput": summary["metrics"]["throughput"]}, indent=2, sort_keys=True))
     return 0

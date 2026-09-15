@@ -44,6 +44,15 @@ They are kept out of the recorded output text so quality validators only see the
 Non-streaming endpoint calls cannot observe first-token timing, so TTFT is conservatively recorded as total request latency.
 A non-streaming `message.content` of `null` is recorded as empty output text.
 
+## Output Length
+
+Temperature-0 generations can stop at an EOS or stop token before `--output-tokens`, which makes token throughput incomparable across configurations.
+Benchmark requests therefore send `ignore_eos` together with `min_tokens` equal to the requested output length, so every request generates exactly that many tokens.
+`min_tokens` is sent as well because `ignore_eos` alone only skips the tokenizer EOS token, not other stop token ids.
+This is on by default for vLLM runs and off for every other backend; enable or disable it with `--ignore-eos` and `--no-ignore-eos`, or with `workload.ignore_eos` in a sweep or matrix config.
+The resolved value is recorded as `metadata.ignore_eos` and inside `metadata.client_configuration`, which is a comparison invariant, so runs with and without a fixed output length are not pooled into one comparison.
+A run whose completed requests returned different output token counts carries a warning, and the claim audit warns when a vLLM run did not fix its output length.
+
 ## Arrival Scheduling and Concurrency
 
 The benchmark runner separates prompt source from request arrival scheduling.

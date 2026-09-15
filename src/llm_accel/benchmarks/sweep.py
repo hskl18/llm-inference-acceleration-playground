@@ -45,6 +45,8 @@ def run_sweep(config_path: str | Path, output_dir: str | Path | None = None) -> 
     client_processes = int(get_path(config, "run.client_processes", 1))
     queue_delay_warning_ms = float(get_path(config, "run.queue_delay_warning_ms", 10.0))
     seed = int(get_path(config, "workload.seed", 42))
+    ignore_eos_value = get_path(config, "workload.ignore_eos")
+    ignore_eos = bool(ignore_eos_value) if ignore_eos_value is not None else None
     prompts_path = get_path(config, "workload.prompts_path")
     if isinstance(prompts_path, str):
         prompts_path = _resolve_config_path(config_file, prompts_path)
@@ -85,6 +87,7 @@ def run_sweep(config_path: str | Path, output_dir: str | Path | None = None) -> 
                     request_rate_rps=request_rate_rps,
                     client_processes=client_processes,
                     queue_delay_warning_ms=queue_delay_warning_ms,
+                    ignore_eos=ignore_eos,
                 )
                 runs.append(
                     {

@@ -103,7 +103,7 @@ The fingerprint is a short hash of the prompt set used for comparison safety; pr
 Every run also records `metadata.unique_prompt_count`, the number of distinct measured prompts.
 Synthetic prompts are seeded per request and unique, so a value below the request count means the workload repeats prompts and a caching backend can serve the repeats from cache.
 
-All runs record `metadata.request_schedule`, `metadata.request_rate_rps`, `metadata.client_processes`, `metadata.client_workers`, `metadata.queue_delay_warning_ms`, and a canonical `metadata.client_configuration` mapping.
+All runs record `metadata.request_schedule`, `metadata.request_rate_rps`, `metadata.client_processes`, `metadata.client_workers`, `metadata.queue_delay_warning_ms`, `metadata.ignore_eos`, and a canonical `metadata.client_configuration` mapping.
 Synthetic runs fingerprint the measured prompt sequence so repeated-run comparability does not depend on missing values.
 
 The metrics block includes `queue_delay_ms` and `end_to_end_latency_ms` distributions alongside endpoint-call latency.
