@@ -58,6 +58,7 @@ class RunMetadata:
     gpu_name: str | None
     workload_mode: str = "synthetic"
     prompt_count: int | None = None
+    unique_prompt_count: int | None = None
     workload_fingerprint: str | None = None
     shared_prefix_tokens_estimate: int | None = None
     shared_prefix_fingerprint: str | None = None

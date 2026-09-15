@@ -477,10 +477,7 @@ def run_latency_benchmark(
         write_bytes_atomic(destination, command_bytes)
     memory_before = sample_gpu_memory()
     workload_mode = "fixed_prompts" if prompt_texts is not None else "synthetic"
-    workload_fingerprint = prompt_fingerprint(prompt_texts) if prompt_texts is not None else None
     prompt_count = len(prompt_texts) if prompt_texts is not None else None
-    shared_tokens = shared_prefix_tokens(prompt_texts) if prompt_texts is not None else None
-    shared_fingerprint = shared_prefix_fingerprint(prompt_texts) if prompt_texts is not None else None
 
     if warmup_count:
         client = OpenAICompatibleClient(
@@ -492,14 +489,25 @@ def run_latency_benchmark(
             tokenizer=tokenizer,
             tokenizer_revision=tokenizer_revision,
         )
-        warmup_prompts = fixed_prompt_batch(prompt_texts, warmup_count) if prompt_texts is not None else prompt_batch(warmup_count, input_tokens, seed)
+        warmup_prompts = (
+            fixed_prompt_batch(prompt_texts, warmup_count)
+            if prompt_texts is not None
+            # Warmup prompts come after the measured indices so they cannot warm a measured cache entry.
+            else prompt_batch(warmup_count, input_tokens, seed, first_index=request_count)
+        )
         for index, prompt in enumerate(warmup_prompts):
             client.complete(prompt, output_tokens, index, stream=stream)
 
     records: list[RequestMetrics] = []
-    prompts = fixed_prompt_batch(prompt_texts, request_count) if prompt_texts is not None else prompt_batch(request_count, input_tokens, seed + warmup_count)
-    if prompt_texts is None:
-        workload_fingerprint = prompt_fingerprint(prompts)
+    prompts = (
+        fixed_prompt_batch(prompt_texts, request_count)
+        if prompt_texts is not None
+        else prompt_batch(request_count, input_tokens, seed)
+    )
+    workload_fingerprint = prompt_fingerprint(prompt_texts if prompt_texts is not None else prompts)
+    unique_prompt_count = len(set(prompts))
+    shared_tokens = shared_prefix_tokens(prompts)
+    shared_fingerprint = shared_prefix_fingerprint(prompts)
     effective_backend = "mock" if base_url.startswith("mock://") else backend
     if effective_backend == "vllm":
         if tokenizer is None or tokenizer_revision is None:
@@ -566,6 +574,7 @@ def run_latency_benchmark(
         "request_count": request_count,
         "workload_mode": workload_mode,
         "prompt_count": prompt_count,
+        "unique_prompt_count": unique_prompt_count,
         "workload_fingerprint": workload_fingerprint,
         "shared_prefix_tokens_estimate": shared_tokens,
         "shared_prefix_fingerprint": shared_fingerprint,
@@ -622,6 +631,7 @@ def run_latency_benchmark(
         gpu_name=environment["gpu_name"] if isinstance(environment["gpu_name"], str) else None,
         workload_mode=workload_mode,
         prompt_count=prompt_count,
+        unique_prompt_count=unique_prompt_count,
         workload_fingerprint=workload_fingerprint,
         shared_prefix_tokens_estimate=shared_tokens,
         shared_prefix_fingerprint=shared_fingerprint,
@@ -661,6 +671,8 @@ def run_latency_benchmark(
         client_processes=client_processes,
         client_workers=concurrency,
         queue_delay_warning_ms=queue_delay_warning_ms,
+        request_count=request_count,
+        unique_prompt_count=unique_prompt_count,
     )
     summary = {
         "schema_version": metadata.schema_version,
@@ -715,8 +727,15 @@ def _build_run_warnings(
     client_processes: int,
     client_workers: int,
     queue_delay_warning_ms: float,
+    request_count: int,
+    unique_prompt_count: int,
 ) -> list[str]:
     warnings: list[str] = []
+    if unique_prompt_count < request_count:
+        warnings.append(
+            f"Only {unique_prompt_count} of {request_count} measured prompts are distinct; "
+            "backends with prefix or prompt caching can serve the repeats from cache."
+        )
     if backend == "mock":
         warnings.append("Mock backend results validate workflow only; they are not hardware performance claims.")
     if backend_version is None:

@@ -74,13 +74,18 @@ It adds throughput-focused summary artifacts while preserving raw request eviden
 ## Workloads
 
 The default benchmark workload is synthetic and controlled by `--input-tokens`, `--output-tokens`, `--request-count`, and `--seed`.
+Each synthetic prompt is drawn from a seeded PRNG over a fixed vocabulary, so every measured request gets its own prompt and prompts share no prefix beyond chance.
+This matters because vLLM enables automatic prefix caching by default, so a repeating or prefix-sharing synthetic workload would silently measure cache hits.
+Warmup requests use prompt indices after the measured ones, so a warmup request never pre-populates a cache entry for a measured prompt, and changing the warmup count does not change the measured workload.
+Prompt-set reuse is an explicit choice: pass `--prompts` or `workload.prompts_path` with a prompt file when the experiment is about prefix reuse or caching.
+Every run records `unique_prompt_count`, and a run whose measured prompts repeat carries a warning in `summary.json`.
 Latency and throughput benchmarks also accept `--prompts` with plain-text lines or JSONL records containing a `prompt` field.
 Config sweeps can use `workload.prompts_path` for the same fixed-prompt behavior.
 
 Prompt text is sent to the configured endpoint but is not written into result metadata.
 Fixed-prompt benchmark metadata records `workload_mode`, `prompt_count`, and a short prompt-set fingerprint so comparisons can detect mismatched prompt sets without exposing prompt contents.
 
-For prefix-reuse workloads, metadata also records an estimated shared-prefix token count and a shared-prefix fingerprint.
+Every run records the measured prompt-set fingerprint, `unique_prompt_count`, an estimated shared-prefix token count, and a shared-prefix fingerprint.
 Use `configs/benchmark_prefix_cache.yaml` as a small workflow check for prefix-cache experiments before moving to a real long-document workload.
 
 ## Run Directories
