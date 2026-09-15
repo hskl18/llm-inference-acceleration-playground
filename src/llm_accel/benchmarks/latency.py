@@ -360,9 +360,10 @@ def _run_measured_requests(
 def _finalize_token_counts(
     measured: list[_MeasuredRequest],
     config: _ClientConfig,
-) -> list[RequestMetrics]:
+) -> tuple[list[RequestMetrics], str]:
+    """Return raw records plus the run-level token-count method bound to them."""
     if config.backend != "vllm":
-        return [item.metrics for item in measured]
+        return _bind_reported_token_methods(measured, config)
     if config.tokenizer is None or config.tokenizer_revision is None:
         raise ValueError("vLLM benchmarks require tokenizer and tokenizer_revision")
     counter = load_token_counter(config.tokenizer, config.tokenizer_revision)
@@ -386,7 +387,29 @@ def _finalize_token_counts(
         else:
             metrics = replace(metrics, token_count_method=method)
         records.append(metrics)
-    return records
+    return records, method
+
+
+def _bind_reported_token_methods(
+    measured: list[_MeasuredRequest],
+    config: _ClientConfig,
+) -> tuple[list[RequestMetrics], str]:
+    """Adopt the method the endpoint actually supported instead of assuming an estimate."""
+    completed_methods = {
+        item.metrics.token_count_method for item in measured if item.metrics.completed
+    }
+    if len(completed_methods) == 1:
+        method = completed_methods.pop()
+    elif completed_methods:
+        # Some requests returned usage and others did not; keep both visible rather than averaging them.
+        method = "mixed:" + "+".join(sorted(completed_methods))
+    else:
+        method = _token_count_method(config)
+    records = [
+        item.metrics if item.metrics.completed else replace(item.metrics, token_count_method=method)
+        for item in measured
+    ]
+    return records, method
 
 
 def _partition_requests(
@@ -512,12 +535,10 @@ def run_latency_benchmark(
     if effective_backend == "vllm":
         if tokenizer is None or tokenizer_revision is None:
             raise ValueError("vLLM benchmarks require tokenizer and tokenizer_revision")
-        token_counter = load_token_counter(tokenizer, tokenizer_revision)
+        load_token_counter(tokenizer, tokenizer_revision)
         prompt_token_counts: list[int] = []
-        token_count_method = f"prompt=server_usage;output={token_counter.method}"
     else:
         prompt_token_counts = [estimate_prompt_tokens(prompt) for prompt in prompts]
-        token_count_method = "mock_synthetic" if effective_backend == "mock" else "whitespace_estimate"
     backend_version = detect_backend_version(effective_backend)
     client_configuration = {
         "request_schedule": request_schedule,
@@ -548,7 +569,7 @@ def run_latency_benchmark(
         client_processes=client_processes,
         config=client_config,
     )
-    records = _finalize_token_counts(measured, client_config)
+    records, token_count_method = _finalize_token_counts(measured, client_config)
 
     records.sort(key=lambda record: record.request_id)
     completed_input_tokens = [record.input_tokens for record in records if record.completed]
@@ -673,6 +694,7 @@ def run_latency_benchmark(
         queue_delay_warning_ms=queue_delay_warning_ms,
         request_count=request_count,
         unique_prompt_count=unique_prompt_count,
+        token_count_method=token_count_method,
     )
     summary = {
         "schema_version": metadata.schema_version,
@@ -729,8 +751,19 @@ def _build_run_warnings(
     queue_delay_warning_ms: float,
     request_count: int,
     unique_prompt_count: int,
+    token_count_method: str,
 ) -> list[str]:
     warnings: list[str] = []
+    if "whitespace_estimate" in token_count_method:
+        warnings.append(
+            "The endpoint reported no token usage, so token counts use a whitespace estimate; "
+            "token throughput and TPOT are approximate."
+        )
+    if token_count_method.startswith("mixed:"):
+        warnings.append(
+            "Token counting was not uniform across requests; inspect raw_requests.jsonl before "
+            "comparing token throughput."
+        )
     if unique_prompt_count < request_count:
         warnings.append(
             f"Only {unique_prompt_count} of {request_count} measured prompts are distinct; "

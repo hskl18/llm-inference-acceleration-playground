@@ -91,6 +91,8 @@ Hardware-oriented metadata also includes `model_revision`, `tokenizer`, `tokeniz
 For vLLM evidence, `input_tokens` comes from server usage so chat-template tokens are included.
 Per-request `output_tokens`, TPOT, and output tokens/sec use final-text counts from the resolved tokenizer rather than whitespace splitting.
 The canonical method evidence is `prompt=server_usage;output=tokenizers.encode(add_special_tokens=false)`.
+For other OpenAI-compatible backends, `metadata.token_count_method` records what the endpoint actually reported: `server_usage`, `whitespace_estimate`, or a `mixed:` value when requests in one run disagreed.
+The same value appears on every raw request row, so summary and raw evidence cannot drift apart.
 The endpoint fingerprint binds redacted remote endpoint evidence without persisting the endpoint URL.
 Missing optional hardware fields remain `null` in local or mock runs rather than being inferred.
 

@@ -22,6 +22,9 @@ Streaming responses are joined before the final tokenizer count, so token bounda
 Output tokenization happens after all endpoint measurements finish, so tokenizer execution time cannot inflate latency, delay closed-loop dispatch, or reduce measured throughput.
 Mutable local tokenizer paths are excluded from hardware evidence because an immutable revision cannot bind their content.
 Whitespace estimates remain explicit for generic compatibility runs and cannot satisfy the vLLM hardware-claim gate.
+Every streaming request asks for `stream_options.include_usage`, so `openai-compatible`, `sglang`, and `tgi` runs use server-reported usage whenever the backend returns it.
+`metadata.token_count_method` is derived from what the endpoint actually reported rather than assumed before the run: `server_usage` when usage was returned, `whitespace_estimate` when it was not, and `mixed:` when requests in one run disagreed.
+Runs that fall back to a whitespace estimate, or that mix methods, say so in `summary.json` warnings.
 - p50, p95, p99 latency
 - failed request count
 - timeout count
@@ -77,10 +80,11 @@ The default benchmark workload is synthetic and controlled by `--input-tokens`, 
 Each synthetic prompt is drawn from a seeded PRNG over a fixed vocabulary, so every measured request gets its own prompt and prompts share no prefix beyond chance.
 This matters because vLLM enables automatic prefix caching by default, so a repeating or prefix-sharing synthetic workload would silently measure cache hits.
 Warmup requests use prompt indices after the measured ones, so a warmup request never pre-populates a cache entry for a measured prompt, and changing the warmup count does not change the measured workload.
-Prompt-set reuse is an explicit choice: pass `--prompts` or `workload.prompts_path` with a prompt file when the experiment is about prefix reuse or caching.
 Every run records `unique_prompt_count`, and a run whose measured prompts repeat carries a warning in `summary.json`.
-Latency and throughput benchmarks also accept `--prompts` with plain-text lines or JSONL records containing a `prompt` field.
-Config sweeps can use `workload.prompts_path` for the same fixed-prompt behavior.
+
+Prompt reuse is an explicit choice.
+Latency and throughput benchmarks accept `--prompts` with plain-text lines or JSONL records containing a `prompt` field, and config sweeps can use `workload.prompts_path` for the same fixed-prompt behavior.
+Use a prompt file when the experiment is about prefix reuse or caching.
 
 Prompt text is sent to the configured endpoint but is not written into result metadata.
 Fixed-prompt benchmark metadata records `workload_mode`, `prompt_count`, and a short prompt-set fingerprint so comparisons can detect mismatched prompt sets without exposing prompt contents.

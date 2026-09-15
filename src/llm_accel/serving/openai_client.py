@@ -229,7 +229,8 @@ class OpenAICompatibleClient:
             "stream": stream,
             "temperature": 0,
         }
-        if stream and self.backend == "vllm":
+        if stream:
+            # Every OpenAI-compatible backend needs this to report usage on a streamed response.
             payload["stream_options"] = {"include_usage": True}
         if self.api_kind == "completion":
             payload["prompt"] = prompt
