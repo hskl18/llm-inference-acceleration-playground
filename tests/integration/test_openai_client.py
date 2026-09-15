@@ -75,6 +75,156 @@ class _OpenAIHandler(BaseHTTPRequestHandler):
         return
 
 
+SUB_WORD_CHUNKS = ["Un", "bel", "iev", "ably", " fast", " str", "eam", "ing", " tok", "ens"]
+
+
+class _NullRoleChunkHandler(BaseHTTPRequestHandler):
+    """Mimics vLLM-style streams: a null-content role chunk, a delay, sub-word chunks, then usage."""
+
+    reasoning_chunks: list[str] = []
+    payloads: list[dict[str, object]] = []
+    headers_seen: list[dict[str, str]] = []
+
+    def do_POST(self) -> None:  # noqa: N802
+        content_length = int(self.headers.get("Content-Length", "0"))
+        payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
+        self.payloads.append(payload)
+        self.headers_seen.append(dict(self.headers.items()))
+        if not payload.get("stream"):
+            body = {
+                "choices": [{"message": {"role": "assistant", "content": None}}],
+                "usage": {"prompt_tokens": 37, "completion_tokens": 0},
+            }
+            encoded = json.dumps(body).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        self._event({"choices": [{"delta": {"role": "assistant", "content": None}}]})
+        time.sleep(0.05)
+        for piece in self.reasoning_chunks:
+            self._event({"choices": [{"delta": {"reasoning_content": piece, "content": None}}]})
+        for piece in SUB_WORD_CHUNKS:
+            self._event({"choices": [{"delta": {"content": piece}}]})
+        self._event({"choices": [], "usage": {"prompt_tokens": 37, "completion_tokens": 10}})
+        self.wfile.write(b"data: [DONE]\n\n")
+        self.wfile.flush()
+
+    def _event(self, payload: dict[str, object]) -> None:
+        self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode())
+        self.wfile.flush()
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+
+def _start_null_role_server(reasoning_chunks: list[str] | None = None) -> tuple[ThreadingHTTPServer, str]:
+    _NullRoleChunkHandler.reasoning_chunks = reasoning_chunks or []
+    _NullRoleChunkHandler.payloads = []
+    _NullRoleChunkHandler.headers_seen = []
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _NullRoleChunkHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    return server, f"http://{host}:{port}/v1"
+
+
+def test_streaming_null_role_chunk_does_not_start_ttft_or_pollute_output() -> None:
+    server, base_url = _start_null_role_server()
+    try:
+        client = OpenAICompatibleClient(base_url=base_url, model="mock")
+        result = client.complete("hello", max_tokens=10, stream=True)
+    finally:
+        server.shutdown()
+
+    assert result.output_text == "".join(SUB_WORD_CHUNKS)
+    assert result.ttft_ms >= 45.0
+    assert result.output_tokens == 10
+    assert result.input_tokens == 37
+
+
+def test_streaming_reasoning_deltas_start_ttft_but_stay_out_of_output_text() -> None:
+    server, base_url = _start_null_role_server(reasoning_chunks=["think", "ing"])
+    try:
+        client = OpenAICompatibleClient(base_url=base_url, model="mock")
+        result = client.complete("hello", max_tokens=12, stream=True)
+    finally:
+        server.shutdown()
+
+    assert result.output_text == "".join(SUB_WORD_CHUNKS)
+    assert result.reasoning_text == "thinking"
+    assert result.ttft_ms >= 45.0
+
+
+@pytest.mark.parametrize(
+    ("api_kind", "stream", "choice", "expected"),
+    [
+        ("completion", True, {"text": None}, ("", "")),
+        ("completion", False, {"text": "done"}, ("done", "")),
+        ("chat", True, {"delta": {"role": "assistant", "content": None}}, ("", "")),
+        ("chat", True, {"delta": {"reasoning": "why", "content": None}}, ("", "why")),
+        ("chat", False, {"message": {"content": None, "reasoning_content": "why"}}, ("", "why")),
+        ("chat", True, {"delta": None}, ("", "")),
+    ],
+)
+def test_choice_text_treats_null_fields_as_empty(api_kind, stream, choice, expected) -> None:
+    client = OpenAICompatibleClient(base_url="http://127.0.0.1:1/v1", model="m", api_kind=api_kind)
+
+    assert client._choice_text(choice, stream=stream) == expected
+
+
+def test_non_streaming_null_message_content_is_empty_text() -> None:
+    server, base_url = _start_null_role_server()
+    try:
+        client = OpenAICompatibleClient(base_url=base_url, model="mock")
+        result = client.complete("hello", max_tokens=10, stream=False)
+    finally:
+        server.shutdown()
+
+    assert result.output_text == ""
+
+
+def test_vllm_benchmark_counts_null_role_stream_without_none_text(monkeypatch, tmp_path) -> None:
+    class CharacterTokenCounter:
+        method = "tokenizers.encode(add_special_tokens=false)"
+
+        def count(self, text: str) -> int:
+            return len(text)
+
+    monkeypatch.setattr(
+        "llm_accel.benchmarks.latency.load_token_counter",
+        lambda tokenizer, revision: CharacterTokenCounter(),
+    )
+    server, base_url = _start_null_role_server(reasoning_chunks=["abc"])
+    try:
+        summary = run_latency_benchmark(
+            base_url=base_url,
+            model="mock",
+            backend="vllm",
+            tokenizer="resolved-tokenizer",
+            tokenizer_revision="b" * 40,
+            concurrency=1,
+            input_tokens=2,
+            output_tokens=10,
+            output_dir=tmp_path,
+            request_count=1,
+            prompt_texts=["hello"],
+        )
+    finally:
+        server.shutdown()
+
+    row = json.loads((tmp_path / "raw_requests.jsonl").read_text(encoding="utf-8"))
+    assert row["input_tokens"] == 37
+    assert row["output_tokens"] == len("abc") + len("".join(SUB_WORD_CHUNKS))
+    assert row["ttft_ms"] >= 45.0
+    assert summary["metrics"]["failed_count"] == 0
+
+
 def _start_server() -> tuple[ThreadingHTTPServer, str]:
     _OpenAIHandler.seen_paths = []
     server = ThreadingHTTPServer(("127.0.0.1", 0), _OpenAIHandler)

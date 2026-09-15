@@ -26,7 +26,7 @@ from llm_accel.metrics.token_counting import (
 )
 from llm_accel.reports.markdown import write_summary_markdown
 from llm_accel.reports.plots import write_latency_svg
-from llm_accel.serving.openai_client import OpenAICompatibleClient
+from llm_accel.serving.openai_client import OpenAICompatibleClient, count_generated_tokens
 from llm_accel.serving.versions import detect_backend_version
 from llm_accel.workloads.prompts import (
     estimate_prompt_tokens,
@@ -66,6 +66,7 @@ class _ClientConfig:
 class _MeasuredRequest:
     metrics: RequestMetrics
     output_text: str
+    reasoning_text: str = ""
 
 
 def _count_prompt_tokens(prompt: str, config: _ClientConfig) -> int:
@@ -137,7 +138,11 @@ def _execute_request(
             queue_delay_ms=max(dispatch - scheduled, 0.0),
             end_to_end_latency_ms=max(completed - scheduled, 0.0),
         )
-        return _MeasuredRequest(metrics=metrics, output_text=result.output_text)
+        return _MeasuredRequest(
+            metrics=metrics,
+            output_text=result.output_text,
+            reasoning_text=result.reasoning_text,
+        )
     except Exception as exc:
         completed = max((time.perf_counter() - origin) * 1000, dispatch)
         metrics = RequestMetrics(
@@ -366,7 +371,7 @@ def _finalize_token_counts(
     for item in measured:
         metrics = item.metrics
         if metrics.completed:
-            output_tokens = counter.count(item.output_text)
+            output_tokens = count_generated_tokens(counter, item.output_text, item.reasoning_text)
             tpot_ms = 0.0
             if output_tokens > 1:
                 tpot_ms = max(metrics.total_latency_ms - metrics.ttft_ms, 0.0) / (

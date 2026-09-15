@@ -34,8 +34,12 @@ The audit is a minimum evidence gate, not a substitute for repeated runs, compat
 
 ## Streaming and Non-Streaming Timing
 
-Streaming endpoint calls observe TTFT from the first content-bearing server-sent event.
+Streaming endpoint calls observe TTFT from the first server-sent event that carries non-empty generated text.
+Role-only chunks, `null` or empty `content`, and usage-only chunks with `choices: []` do not start TTFT and never add text.
+Reasoning deltas (`reasoning_content`, or `reasoning` in newer vLLM releases) are generated tokens, so they start TTFT and count toward output tokens.
+They are kept out of the recorded output text so quality validators only see the final answer.
 Non-streaming endpoint calls cannot observe first-token timing, so TTFT is conservatively recorded as total request latency.
+A non-streaming `message.content` of `null` is recorded as empty output text.
 
 ## Arrival Scheduling and Concurrency
 
