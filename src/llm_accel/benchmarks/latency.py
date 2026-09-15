@@ -26,7 +26,11 @@ from llm_accel.metrics.token_counting import (
 )
 from llm_accel.reports.markdown import write_summary_markdown
 from llm_accel.reports.plots import write_latency_svg
-from llm_accel.serving.openai_client import OpenAICompatibleClient
+from llm_accel.serving.openai_client import (
+    DEFAULT_API_KEY_ENV,
+    OpenAICompatibleClient,
+    count_generated_tokens,
+)
 from llm_accel.serving.versions import detect_backend_version
 from llm_accel.workloads.prompts import (
     estimate_prompt_tokens,
@@ -60,12 +64,15 @@ class _ClientConfig:
     concurrency: int
     tokenizer: str | None
     tokenizer_revision: str | None
+    ignore_eos: bool = False
+    api_key_env: str = DEFAULT_API_KEY_ENV
 
 
 @dataclass(frozen=True)
 class _MeasuredRequest:
     metrics: RequestMetrics
     output_text: str
+    reasoning_text: str = ""
 
 
 def _count_prompt_tokens(prompt: str, config: _ClientConfig) -> int:
@@ -109,6 +116,8 @@ def _execute_request(
         tokenizer=config.tokenizer,
         tokenizer_revision=config.tokenizer_revision,
         defer_token_count=config.backend == "vllm",
+        ignore_eos=config.ignore_eos,
+        api_key_env=config.api_key_env,
     )
     try:
         result = client.complete(spec.prompt, config.output_tokens, spec.index, stream=config.stream)
@@ -137,7 +146,11 @@ def _execute_request(
             queue_delay_ms=max(dispatch - scheduled, 0.0),
             end_to_end_latency_ms=max(completed - scheduled, 0.0),
         )
-        return _MeasuredRequest(metrics=metrics, output_text=result.output_text)
+        return _MeasuredRequest(
+            metrics=metrics,
+            output_text=result.output_text,
+            reasoning_text=result.reasoning_text,
+        )
     except Exception as exc:
         completed = max((time.perf_counter() - origin) * 1000, dispatch)
         metrics = RequestMetrics(
@@ -355,9 +368,10 @@ def _run_measured_requests(
 def _finalize_token_counts(
     measured: list[_MeasuredRequest],
     config: _ClientConfig,
-) -> list[RequestMetrics]:
+) -> tuple[list[RequestMetrics], str]:
+    """Return raw records plus the run-level token-count method bound to them."""
     if config.backend != "vllm":
-        return [item.metrics for item in measured]
+        return _bind_reported_token_methods(measured, config)
     if config.tokenizer is None or config.tokenizer_revision is None:
         raise ValueError("vLLM benchmarks require tokenizer and tokenizer_revision")
     counter = load_token_counter(config.tokenizer, config.tokenizer_revision)
@@ -366,7 +380,7 @@ def _finalize_token_counts(
     for item in measured:
         metrics = item.metrics
         if metrics.completed:
-            output_tokens = counter.count(item.output_text)
+            output_tokens = count_generated_tokens(counter, item.output_text, item.reasoning_text)
             tpot_ms = 0.0
             if output_tokens > 1:
                 tpot_ms = max(metrics.total_latency_ms - metrics.ttft_ms, 0.0) / (
@@ -381,7 +395,29 @@ def _finalize_token_counts(
         else:
             metrics = replace(metrics, token_count_method=method)
         records.append(metrics)
-    return records
+    return records, method
+
+
+def _bind_reported_token_methods(
+    measured: list[_MeasuredRequest],
+    config: _ClientConfig,
+) -> tuple[list[RequestMetrics], str]:
+    """Adopt the method the endpoint actually supported instead of assuming an estimate."""
+    completed_methods = {
+        item.metrics.token_count_method for item in measured if item.metrics.completed
+    }
+    if len(completed_methods) == 1:
+        method = completed_methods.pop()
+    elif completed_methods:
+        # Some requests returned usage and others did not; keep both visible rather than averaging them.
+        method = "mixed:" + "+".join(sorted(completed_methods))
+    else:
+        method = _token_count_method(config)
+    records = [
+        item.metrics if item.metrics.completed else replace(item.metrics, token_count_method=method)
+        for item in measured
+    ]
+    return records, method
 
 
 def _partition_requests(
@@ -431,6 +467,8 @@ def run_latency_benchmark(
     request_rate_rps: float | None = None,
     client_processes: int = 1,
     queue_delay_warning_ms: float = 10.0,
+    ignore_eos: bool | None = None,
+    api_key_env: str = DEFAULT_API_KEY_ENV,
 ) -> dict[str, object]:
     if concurrency <= 0:
         raise ValueError("concurrency must be positive")
@@ -472,10 +510,10 @@ def run_latency_benchmark(
         write_bytes_atomic(destination, command_bytes)
     memory_before = sample_gpu_memory()
     workload_mode = "fixed_prompts" if prompt_texts is not None else "synthetic"
-    workload_fingerprint = prompt_fingerprint(prompt_texts) if prompt_texts is not None else None
     prompt_count = len(prompt_texts) if prompt_texts is not None else None
-    shared_tokens = shared_prefix_tokens(prompt_texts) if prompt_texts is not None else None
-    shared_fingerprint = shared_prefix_fingerprint(prompt_texts) if prompt_texts is not None else None
+    effective_backend = "mock" if base_url.startswith("mock://") else backend
+    # vLLM benchmark runs fix the output length by default; other backends must opt in.
+    resolved_ignore_eos = effective_backend == "vllm" if ignore_eos is None else bool(ignore_eos)
 
     if warmup_count:
         client = OpenAICompatibleClient(
@@ -486,25 +524,36 @@ def run_latency_benchmark(
             api_kind=api_kind,
             tokenizer=tokenizer,
             tokenizer_revision=tokenizer_revision,
+            ignore_eos=resolved_ignore_eos,
+            api_key_env=api_key_env,
         )
-        warmup_prompts = fixed_prompt_batch(prompt_texts, warmup_count) if prompt_texts is not None else prompt_batch(warmup_count, input_tokens, seed)
+        warmup_prompts = (
+            fixed_prompt_batch(prompt_texts, warmup_count)
+            if prompt_texts is not None
+            # Warmup prompts come after the measured indices so they cannot warm a measured cache entry.
+            else prompt_batch(warmup_count, input_tokens, seed, first_index=request_count)
+        )
         for index, prompt in enumerate(warmup_prompts):
             client.complete(prompt, output_tokens, index, stream=stream)
 
     records: list[RequestMetrics] = []
-    prompts = fixed_prompt_batch(prompt_texts, request_count) if prompt_texts is not None else prompt_batch(request_count, input_tokens, seed + warmup_count)
-    if prompt_texts is None:
-        workload_fingerprint = prompt_fingerprint(prompts)
-    effective_backend = "mock" if base_url.startswith("mock://") else backend
+    prompts = (
+        fixed_prompt_batch(prompt_texts, request_count)
+        if prompt_texts is not None
+        else prompt_batch(request_count, input_tokens, seed)
+    )
+    workload_fingerprint = prompt_fingerprint(prompt_texts if prompt_texts is not None else prompts)
+    unique_prompt_count = len(set(prompts))
+    shared_tokens = shared_prefix_tokens(prompts)
+    shared_fingerprint = shared_prefix_fingerprint(prompts)
     if effective_backend == "vllm":
         if tokenizer is None or tokenizer_revision is None:
             raise ValueError("vLLM benchmarks require tokenizer and tokenizer_revision")
-        token_counter = load_token_counter(tokenizer, tokenizer_revision)
+        # Resolve the tokenizer before measurement so its download cannot inflate request latency.
+        load_token_counter(tokenizer, tokenizer_revision)
         prompt_token_counts: list[int] = []
-        token_count_method = f"prompt=server_usage;output={token_counter.method}"
     else:
         prompt_token_counts = [estimate_prompt_tokens(prompt) for prompt in prompts]
-        token_count_method = "mock_synthetic" if effective_backend == "mock" else "whitespace_estimate"
     backend_version = detect_backend_version(effective_backend)
     client_configuration = {
         "request_schedule": request_schedule,
@@ -515,6 +564,7 @@ def run_latency_benchmark(
         "timeout_seconds": timeout_seconds,
         "api_kind": api_kind,
         "stream": stream,
+        "ignore_eos": resolved_ignore_eos,
     }
     client_config = _ClientConfig(
         base_url=base_url,
@@ -527,6 +577,8 @@ def run_latency_benchmark(
         concurrency=concurrency,
         tokenizer=tokenizer,
         tokenizer_revision=tokenizer_revision,
+        ignore_eos=resolved_ignore_eos,
+        api_key_env=api_key_env,
     )
     measured = _run_measured_requests(
         prompts=prompts,
@@ -535,7 +587,7 @@ def run_latency_benchmark(
         client_processes=client_processes,
         config=client_config,
     )
-    records = _finalize_token_counts(measured, client_config)
+    records, token_count_method = _finalize_token_counts(measured, client_config)
 
     records.sort(key=lambda record: record.request_id)
     completed_input_tokens = [record.input_tokens for record in records if record.completed]
@@ -561,6 +613,7 @@ def run_latency_benchmark(
         "request_count": request_count,
         "workload_mode": workload_mode,
         "prompt_count": prompt_count,
+        "unique_prompt_count": unique_prompt_count,
         "workload_fingerprint": workload_fingerprint,
         "shared_prefix_tokens_estimate": shared_tokens,
         "shared_prefix_fingerprint": shared_fingerprint,
@@ -584,6 +637,7 @@ def run_latency_benchmark(
         "client_processes": client_processes,
         "client_workers": concurrency,
         "queue_delay_warning_ms": queue_delay_warning_ms,
+        "ignore_eos": resolved_ignore_eos,
         "client_configuration": client_configuration,
         "token_count_method": token_count_method,
     }
@@ -617,6 +671,7 @@ def run_latency_benchmark(
         gpu_name=environment["gpu_name"] if isinstance(environment["gpu_name"], str) else None,
         workload_mode=workload_mode,
         prompt_count=prompt_count,
+        unique_prompt_count=unique_prompt_count,
         workload_fingerprint=workload_fingerprint,
         shared_prefix_tokens_estimate=shared_tokens,
         shared_prefix_fingerprint=shared_fingerprint,
@@ -639,6 +694,7 @@ def run_latency_benchmark(
         client_processes=client_processes,
         client_workers=concurrency,
         queue_delay_warning_ms=queue_delay_warning_ms,
+        ignore_eos=resolved_ignore_eos,
         client_configuration=client_configuration,
         token_count_method=token_count_method,
     )
@@ -656,6 +712,10 @@ def run_latency_benchmark(
         client_processes=client_processes,
         client_workers=concurrency,
         queue_delay_warning_ms=queue_delay_warning_ms,
+        request_count=request_count,
+        unique_prompt_count=unique_prompt_count,
+        token_count_method=token_count_method,
+        completed_output_tokens=[record.output_tokens for record in records if record.completed],
     )
     summary = {
         "schema_version": metadata.schema_version,
@@ -710,8 +770,33 @@ def _build_run_warnings(
     client_processes: int,
     client_workers: int,
     queue_delay_warning_ms: float,
+    request_count: int,
+    unique_prompt_count: int,
+    token_count_method: str,
+    completed_output_tokens: list[int],
 ) -> list[str]:
     warnings: list[str] = []
+    if len(set(completed_output_tokens)) > 1:
+        warnings.append(
+            f"Output token counts vary across completed requests (min {min(completed_output_tokens)}, "
+            f"max {max(completed_output_tokens)}); throughput is not comparable across configurations "
+            "unless the output length is fixed with ignore_eos."
+        )
+    if "whitespace_estimate" in token_count_method:
+        warnings.append(
+            "The endpoint reported no token usage, so token counts use a whitespace estimate; "
+            "token throughput and TPOT are approximate."
+        )
+    if token_count_method.startswith("mixed:"):
+        warnings.append(
+            "Token counting was not uniform across requests; inspect raw_requests.jsonl before "
+            "comparing token throughput."
+        )
+    if unique_prompt_count < request_count:
+        warnings.append(
+            f"Only {unique_prompt_count} of {request_count} measured prompts are distinct; "
+            "backends with prefix or prompt caching can serve the repeats from cache."
+        )
     if backend == "mock":
         warnings.append("Mock backend results validate workflow only; they are not hardware performance claims.")
     if backend_version is None:

@@ -25,7 +25,7 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = ["jsonschema>=4.23", "tokenizers>=0.20"]
+dependencies = ["jsonschema>=4.23", "PyYAML>=6.0", "tokenizers>=0.20"]
 
 [project.urls]
 Homepage = "https://github.com/hskl18/llm-inference-acceleration-playground"
@@ -51,6 +51,7 @@ version = {attr = "llm_accel._version.__version__"}
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = ["realtime_mock: keep real wall-clock sleeps in the mock backend"]
 
 [tool.ruff]
 line-length = 180

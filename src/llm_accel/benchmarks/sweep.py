@@ -8,6 +8,7 @@ from llm_accel.config.loader import get_path, load_config, sanitize_resolved_con
 from llm_accel.metrics.io import write_json
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.reports.markdown import write_aggregate_markdown
+from llm_accel.serving.openai_client import DEFAULT_API_KEY_ENV
 from llm_accel.reports.plots import write_latency_throughput_svg, write_sweep_svg
 from llm_accel.workloads.prompts import load_prompt_file
 
@@ -29,6 +30,7 @@ def run_sweep(config_path: str | Path, output_dir: str | Path | None = None) -> 
     base_url = get_path(config, "endpoint.base_url", "mock://local")
     backend = get_path(config, "endpoint.backend", "openai-compatible")
     api_kind = get_path(config, "endpoint.api_kind", "chat")
+    api_key_env = str(get_path(config, "endpoint.api_key_env", DEFAULT_API_KEY_ENV))
     model = get_path(config, "model.name", "mock-model")
     dtype = get_path(config, "model.dtype", "unknown")
     quantization = get_path(config, "model.quantization", "none")
@@ -45,6 +47,8 @@ def run_sweep(config_path: str | Path, output_dir: str | Path | None = None) -> 
     client_processes = int(get_path(config, "run.client_processes", 1))
     queue_delay_warning_ms = float(get_path(config, "run.queue_delay_warning_ms", 10.0))
     seed = int(get_path(config, "workload.seed", 42))
+    ignore_eos_value = get_path(config, "workload.ignore_eos")
+    ignore_eos = bool(ignore_eos_value) if ignore_eos_value is not None else None
     prompts_path = get_path(config, "workload.prompts_path")
     if isinstance(prompts_path, str):
         prompts_path = _resolve_config_path(config_file, prompts_path)
@@ -85,6 +89,8 @@ def run_sweep(config_path: str | Path, output_dir: str | Path | None = None) -> 
                     request_rate_rps=request_rate_rps,
                     client_processes=client_processes,
                     queue_delay_warning_ms=queue_delay_warning_ms,
+                    ignore_eos=ignore_eos,
+                    api_key_env=api_key_env,
                 )
                 runs.append(
                     {

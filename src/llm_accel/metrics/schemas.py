@@ -58,6 +58,7 @@ class RunMetadata:
     gpu_name: str | None
     workload_mode: str = "synthetic"
     prompt_count: int | None = None
+    unique_prompt_count: int | None = None
     workload_fingerprint: str | None = None
     shared_prefix_tokens_estimate: int | None = None
     shared_prefix_fingerprint: str | None = None
@@ -76,6 +77,7 @@ class RunMetadata:
     client_processes: int = 1
     client_workers: int = 1
     queue_delay_warning_ms: float = 10.0
+    ignore_eos: bool = False
     client_configuration: dict[str, Any] | None = None
     token_count_method: str = "unknown"
     schema_version: str = SCHEMA_VERSION

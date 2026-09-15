@@ -22,6 +22,9 @@ Streaming responses are joined before the final tokenizer count, so token bounda
 Output tokenization happens after all endpoint measurements finish, so tokenizer execution time cannot inflate latency, delay closed-loop dispatch, or reduce measured throughput.
 Mutable local tokenizer paths are excluded from hardware evidence because an immutable revision cannot bind their content.
 Whitespace estimates remain explicit for generic compatibility runs and cannot satisfy the vLLM hardware-claim gate.
+Every streaming request asks for `stream_options.include_usage`, so `openai-compatible`, `sglang`, and `tgi` runs use server-reported usage whenever the backend returns it.
+`metadata.token_count_method` is derived from what the endpoint actually reported rather than assumed before the run: `server_usage` when usage was returned, `whitespace_estimate` when it was not, and `mixed:` when requests in one run disagreed.
+Runs that fall back to a whitespace estimate, or that mix methods, say so in `summary.json` warnings.
 - p50, p95, p99 latency
 - failed request count
 - timeout count
@@ -34,8 +37,21 @@ The audit is a minimum evidence gate, not a substitute for repeated runs, compat
 
 ## Streaming and Non-Streaming Timing
 
-Streaming endpoint calls observe TTFT from the first content-bearing server-sent event.
+Streaming endpoint calls observe TTFT from the first server-sent event that carries non-empty generated text.
+Role-only chunks, `null` or empty `content`, and usage-only chunks with `choices: []` do not start TTFT and never add text.
+Reasoning deltas (`reasoning_content`, or `reasoning` in newer vLLM releases) are generated tokens, so they start TTFT and count toward output tokens.
+They are kept out of the recorded output text so quality validators only see the final answer.
 Non-streaming endpoint calls cannot observe first-token timing, so TTFT is conservatively recorded as total request latency.
+A non-streaming `message.content` of `null` is recorded as empty output text.
+
+## Output Length
+
+Temperature-0 generations can stop at an EOS or stop token before `--output-tokens`, which makes token throughput incomparable across configurations.
+Benchmark requests therefore send `ignore_eos` together with `min_tokens` equal to the requested output length, so every request generates exactly that many tokens.
+`min_tokens` is sent as well because `ignore_eos` alone only skips the tokenizer EOS token, not other stop token ids.
+This is on by default for vLLM runs and off for every other backend; enable or disable it with `--ignore-eos` and `--no-ignore-eos`, or with `workload.ignore_eos` in a sweep or matrix config.
+The resolved value is recorded as `metadata.ignore_eos` and inside `metadata.client_configuration`, which is a comparison invariant, so runs with and without a fixed output length are not pooled into one comparison.
+A run whose completed requests returned different output token counts carries a warning, and the claim audit warns when a vLLM run did not fix its output length.
 
 ## Arrival Scheduling and Concurrency
 
@@ -70,13 +86,19 @@ It adds throughput-focused summary artifacts while preserving raw request eviden
 ## Workloads
 
 The default benchmark workload is synthetic and controlled by `--input-tokens`, `--output-tokens`, `--request-count`, and `--seed`.
-Latency and throughput benchmarks also accept `--prompts` with plain-text lines or JSONL records containing a `prompt` field.
-Config sweeps can use `workload.prompts_path` for the same fixed-prompt behavior.
+Each synthetic prompt is drawn from a seeded PRNG over a fixed vocabulary, so every measured request gets its own prompt and prompts share no prefix beyond chance.
+This matters because vLLM enables automatic prefix caching by default, so a repeating or prefix-sharing synthetic workload would silently measure cache hits.
+Warmup requests use prompt indices after the measured ones, so a warmup request never pre-populates a cache entry for a measured prompt, and changing the warmup count does not change the measured workload.
+Every run records `unique_prompt_count`, and a run whose measured prompts repeat carries a warning in `summary.json`.
+
+Prompt reuse is an explicit choice.
+Latency and throughput benchmarks accept `--prompts` with plain-text lines or JSONL records containing a `prompt` field, and config sweeps can use `workload.prompts_path` for the same fixed-prompt behavior.
+Use a prompt file when the experiment is about prefix reuse or caching.
 
 Prompt text is sent to the configured endpoint but is not written into result metadata.
 Fixed-prompt benchmark metadata records `workload_mode`, `prompt_count`, and a short prompt-set fingerprint so comparisons can detect mismatched prompt sets without exposing prompt contents.
 
-For prefix-reuse workloads, metadata also records an estimated shared-prefix token count and a shared-prefix fingerprint.
+Every run records the measured prompt-set fingerprint, `unique_prompt_count`, an estimated shared-prefix token count, and a shared-prefix fingerprint.
 Use `configs/benchmark_prefix_cache.yaml` as a small workflow check for prefix-cache experiments before moving to a real long-document workload.
 
 ## Run Directories
@@ -100,6 +122,9 @@ Sweep and matrix configs are validated before any run starts.
 Required endpoint, model, run, and workload fields must be present.
 Request counts, timeouts, token lengths, offered request rate, concurrency, process counts, and queue thresholds are checked where applicable.
 Endpoint secrets must be referenced through `api_key_env`, not embedded directly in config files.
+`endpoint.api_key_env` names the environment variable the client reads for the bearer token, and a matrix profile may override it because profiles use distinct endpoints.
+The CLI equivalent is `--api-key-env`; it defaults to `OPENAI_API_KEY`.
+Only the variable name is used and recorded, never the value, and requests are sent without an Authorization header when the variable is unset.
 
 ## Optimization Profiles
 

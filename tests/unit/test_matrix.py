@@ -700,6 +700,15 @@ def test_ranking_saturation_ceiling_cannot_be_disabled_by_configuration() -> Non
     assert _effective_saturation_threshold(5.0, 1_000.0) == 5.0
 
 
+def test_matrix_rejects_null_profile_quantization(tmp_path: Path) -> None:
+    source = (ROOT / "configs" / "optimization_matrix_mock.yaml").read_text(encoding="utf-8")
+    config_path = tmp_path / "null-quantization.yaml"
+    config_path.write_text(source.replace("quantization: int8", "quantization: null"), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="profiles.quantized.quantization must be a non-empty string"):
+        run_matrix(config_path, tmp_path / "output")
+
+
 def test_matrix_rejects_duplicate_workload_dimensions(tmp_path: Path) -> None:
     source = (ROOT / "configs" / "optimization_matrix_mock.yaml").read_text(encoding="utf-8")
     config_path = tmp_path / "duplicate.yaml"

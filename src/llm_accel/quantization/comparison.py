@@ -7,6 +7,7 @@ from llm_accel.metrics.io import write_json, write_text_atomic
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.quantization.sanity import DEFAULT_SANITY_PROMPTS, run_quality_sanity_check
 from llm_accel.serving.capabilities import get_capability
+from llm_accel.serving.openai_client import DEFAULT_API_KEY_ENV
 
 
 def compare_quantization_modes(
@@ -22,6 +23,7 @@ def compare_quantization_modes(
     backend: str = "openai-compatible",
     hardware_label: str = "local",
     sanity_prompts: list[str] | None = None,
+    api_key_env: str = DEFAULT_API_KEY_ENV,
 ) -> dict[str, object]:
     if not modes:
         raise ValueError("at least one quantization mode is required")
@@ -66,6 +68,7 @@ def compare_quantization_modes(
             quantization=mode,
             backend=backend,
             hardware_label=hardware_label,
+            api_key_env=api_key_env,
         )
         metrics = summary["metrics"]
         sanity = run_quality_sanity_check(
@@ -74,6 +77,7 @@ def compare_quantization_modes(
             backend=backend,
             quantization=mode,
             prompts=sanity_prompts or DEFAULT_SANITY_PROMPTS,
+            api_key_env=api_key_env,
         )
         throughput = metrics["throughput"]["output_tokens_per_second"]  # type: ignore[index]
         if baseline_tokens_per_second is None:

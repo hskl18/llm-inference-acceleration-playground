@@ -25,6 +25,7 @@ from llm_accel.metrics.optimization_profile import (
 )
 from llm_accel.reports.comparison import compare_run_summaries
 from llm_accel.reports.validation import validate_run_dir
+from llm_accel.serving.openai_client import DEFAULT_API_KEY_ENV
 from llm_accel.serving.versions import detect_backend_version
 from llm_accel.workloads.prompts import load_prompt_file
 
@@ -234,6 +235,10 @@ def _validate_matrix_config(config: dict[str, Any]) -> dict[str, dict[str, Any]]
     if missing:
         errors.append(f"profiles section is missing required roles: {', '.join(missing)}")
     for name, profile in profiles.items():
+        if "quantization" in profile and (
+            not isinstance(profile["quantization"], str) or not profile["quantization"].strip()
+        ):
+            errors.append(f"profiles.{name}.quantization must be a non-empty string such as 'none'")
         command = profile.get("server_command")
         command_file = profile.get("server_command_file")
         if not isinstance(command, str) and not isinstance(command_file, str):
@@ -417,6 +422,8 @@ def _run_planned_cell(
         request_rate_rps=_optional_float(get_path(config, "workload.request_rate_rps")),
         client_processes=int(get_path(config, "run.client_processes", 1)),
         queue_delay_warning_ms=float(get_path(config, "run.queue_delay_warning_ms", 10.0)),
+        ignore_eos=_optional_bool(get_path(config, "workload.ignore_eos")),
+        api_key_env=_profile_api_key_env(config, profile_config),
     )
     summary_metadata = summary.get("metadata")
     if not isinstance(summary_metadata, dict):
@@ -763,6 +770,7 @@ def _run_quality_gates(
             base_url=base_url,
         )
         tokenizer, tokenizer_revision = _resolve_profile_tokenizer(config, profile)
+        api_key_env = _profile_api_key_env(config, profile)
         if resume and report_path.exists() and _valid_existing_quality_run(
             output_dir,
             task_specs,
@@ -781,6 +789,7 @@ def _run_quality_gates(
                 tokenizer_revision=tokenizer_revision,
                 max_tokens=max_tokens,
                 stream=bool(get_path(config, "endpoint.stream", True)),
+                api_key_env=api_key_env,
             )
         raw[profile_name] = {
             "profile": profile_name,
@@ -919,6 +928,20 @@ def _contained_path(
 
 def _optional_string(value: object) -> str | None:
     return str(value) if value not in {None, ""} else None
+
+
+def _profile_api_key_env(config: dict[str, Any], profile: dict[str, Any]) -> str:
+    """Each profile can name its own key variable because profiles use distinct endpoints."""
+    return str(
+        profile.get(
+            "api_key_env",
+            get_path(config, "endpoint.api_key_env", DEFAULT_API_KEY_ENV),
+        )
+    )
+
+
+def _optional_bool(value: object) -> bool | None:
+    return bool(value) if value is not None else None
 
 
 def _optional_int(value: object) -> int | None:

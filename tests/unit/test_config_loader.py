@@ -15,6 +15,53 @@ def test_load_config_reads_sample_yaml() -> None:
     validate_benchmark_config(config)
 
 
+def test_load_config_uses_yaml_semantics_for_none_and_inline_comments(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "model:\n  name: m\n  quantization: none\n  dtype: fp16 # half precision\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert get_path(config, "model.quantization") == "none"
+    assert get_path(config, "model.dtype") == "fp16"
+
+
+def test_load_config_does_not_fall_back_to_a_different_parser(tmp_path: Path, monkeypatch) -> None:
+    import llm_accel.config.loader as loader
+
+    assert not hasattr(loader, "_load_minimal_yaml")
+    config_path = tmp_path / "broken.yaml"
+    config_path.write_text("model: [unclosed\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="invalid YAML"):
+        load_config(config_path)
+
+
+def test_load_config_rejects_non_mapping_json(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text("[1, 2]", encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="mapping"):
+        load_config(config_path)
+
+
+def test_validate_benchmark_config_rejects_null_quantization_and_dtype() -> None:
+    config = {
+        "run": {"measured_requests": 2},
+        "endpoint": {"base_url": "mock://local"},
+        "model": {"name": "mock-model", "quantization": None, "dtype": None},
+        "workload": {"input_tokens": [8], "output_tokens": [8], "concurrency": [1]},
+    }
+
+    with pytest.raises(ConfigError) as exc_info:
+        validate_benchmark_config(config)
+
+    assert "model.quantization must be a non-empty string" in str(exc_info.value)
+    assert "model.dtype must be a non-empty string" in str(exc_info.value)
+
+
 def test_validate_benchmark_config_rejects_invalid_values() -> None:
     config = {
         "run": {"measured_requests": 0, "warmup_requests": -1, "timeout_seconds": 0},
@@ -143,3 +190,20 @@ def test_sanitize_resolved_config_keeps_local_endpoint() -> None:
     sanitized = sanitize_resolved_config(config)
 
     assert sanitized["endpoint"]["base_url"] == "http://localhost:8000/v1"
+
+
+def test_validate_benchmark_config_rejects_non_boolean_ignore_eos() -> None:
+    config = {
+        "run": {"measured_requests": 2},
+        "endpoint": {"base_url": "mock://local"},
+        "model": {"name": "mock-model"},
+        "workload": {
+            "input_tokens": [8],
+            "output_tokens": [8],
+            "concurrency": [1],
+            "ignore_eos": "yes",
+        },
+    }
+
+    with pytest.raises(ConfigError, match="workload.ignore_eos must be a boolean"):
+        validate_benchmark_config(config)

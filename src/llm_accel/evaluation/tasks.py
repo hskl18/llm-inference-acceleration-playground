@@ -10,7 +10,7 @@ from llm_accel.metrics.execution_identity import execution_identity
 from llm_accel.metrics.io import write_json, write_text_atomic
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.metrics.schemas import SCHEMA_VERSION
-from llm_accel.serving.openai_client import OpenAICompatibleClient
+from llm_accel.serving.openai_client import DEFAULT_API_KEY_ENV, OpenAICompatibleClient
 
 
 def load_task_specs(path: str | Path) -> list[dict[str, object]]:
@@ -47,6 +47,7 @@ def evaluate_tasks(
     tokenizer_revision: str | None = None,
     max_tokens: int = 64,
     stream: bool = False,
+    api_key_env: str = DEFAULT_API_KEY_ENV,
 ) -> dict[str, object]:
     specs = _normalize_task_specs(task_specs)
     client = OpenAICompatibleClient(
@@ -55,6 +56,7 @@ def evaluate_tasks(
         backend=backend,
         tokenizer=tokenizer,
         tokenizer_revision=tokenizer_revision,
+        api_key_env=api_key_env,
     )
     checks: list[dict[str, object]] = []
     outputs: list[dict[str, object]] = []

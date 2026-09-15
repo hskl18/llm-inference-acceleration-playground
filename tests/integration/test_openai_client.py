@@ -75,6 +75,171 @@ class _OpenAIHandler(BaseHTTPRequestHandler):
         return
 
 
+SUB_WORD_CHUNKS = ["Un", "bel", "iev", "ably", " fast", " str", "eam", "ing", " tok", "ens"]
+
+
+class _NullRoleChunkHandler(BaseHTTPRequestHandler):
+    """Mimics vLLM-style streams: a null-content role chunk, a delay, sub-word chunks, then usage."""
+
+    reasoning_chunks: list[str] = []
+    send_usage: bool = True
+    payloads: list[dict[str, object]] = []
+    headers_seen: list[dict[str, str]] = []
+
+    def do_POST(self) -> None:  # noqa: N802
+        content_length = int(self.headers.get("Content-Length", "0"))
+        payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
+        self.payloads.append(payload)
+        self.headers_seen.append(dict(self.headers.items()))
+        if not payload.get("stream"):
+            body = {
+                "choices": [{"message": {"role": "assistant", "content": None}}],
+                "usage": {"prompt_tokens": 37, "completion_tokens": 0},
+            }
+            encoded = json.dumps(body).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        self._event({"choices": [{"delta": {"role": "assistant", "content": None}}]})
+        time.sleep(0.05)
+        for piece in self.reasoning_chunks:
+            self._event({"choices": [{"delta": {"reasoning_content": piece, "content": None}}]})
+        for piece in SUB_WORD_CHUNKS:
+            self._event({"choices": [{"delta": {"content": piece}}]})
+        if self.send_usage:
+            self._event({"choices": [], "usage": {"prompt_tokens": 37, "completion_tokens": 10}})
+        self.wfile.write(b"data: [DONE]\n\n")
+        self.wfile.flush()
+
+    def do_GET(self) -> None:  # noqa: N802
+        self.headers_seen.append(dict(self.headers.items()))
+        body = b'{"object":"list","data":[]}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _event(self, payload: dict[str, object]) -> None:
+        self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode())
+        self.wfile.flush()
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+
+def _start_null_role_server(
+    reasoning_chunks: list[str] | None = None,
+    send_usage: bool = True,
+) -> tuple[ThreadingHTTPServer, str]:
+    _NullRoleChunkHandler.reasoning_chunks = reasoning_chunks or []
+    _NullRoleChunkHandler.send_usage = send_usage
+    _NullRoleChunkHandler.payloads = []
+    _NullRoleChunkHandler.headers_seen = []
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _NullRoleChunkHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    return server, f"http://{host}:{port}/v1"
+
+
+def test_streaming_null_role_chunk_does_not_start_ttft_or_pollute_output() -> None:
+    server, base_url = _start_null_role_server()
+    try:
+        client = OpenAICompatibleClient(base_url=base_url, model="mock")
+        result = client.complete("hello", max_tokens=10, stream=True)
+    finally:
+        server.shutdown()
+
+    assert result.output_text == "".join(SUB_WORD_CHUNKS)
+    assert result.ttft_ms >= 45.0
+    assert result.output_tokens == 10
+    assert result.input_tokens == 37
+
+
+def test_streaming_reasoning_deltas_start_ttft_but_stay_out_of_output_text() -> None:
+    server, base_url = _start_null_role_server(reasoning_chunks=["think", "ing"])
+    try:
+        client = OpenAICompatibleClient(base_url=base_url, model="mock")
+        result = client.complete("hello", max_tokens=12, stream=True)
+    finally:
+        server.shutdown()
+
+    assert result.output_text == "".join(SUB_WORD_CHUNKS)
+    assert result.reasoning_text == "thinking"
+    assert result.ttft_ms >= 45.0
+
+
+@pytest.mark.parametrize(
+    ("api_kind", "stream", "choice", "expected"),
+    [
+        ("completion", True, {"text": None}, ("", "")),
+        ("completion", False, {"text": "done"}, ("done", "")),
+        ("chat", True, {"delta": {"role": "assistant", "content": None}}, ("", "")),
+        ("chat", True, {"delta": {"reasoning": "why", "content": None}}, ("", "why")),
+        ("chat", False, {"message": {"content": None, "reasoning_content": "why"}}, ("", "why")),
+        ("chat", True, {"delta": None}, ("", "")),
+    ],
+)
+def test_choice_text_treats_null_fields_as_empty(api_kind, stream, choice, expected) -> None:
+    client = OpenAICompatibleClient(base_url="http://127.0.0.1:1/v1", model="m", api_kind=api_kind)
+
+    assert client._choice_text(choice, stream=stream) == expected
+
+
+def test_non_streaming_null_message_content_is_empty_text() -> None:
+    server, base_url = _start_null_role_server()
+    try:
+        client = OpenAICompatibleClient(base_url=base_url, model="mock")
+        result = client.complete("hello", max_tokens=10, stream=False)
+    finally:
+        server.shutdown()
+
+    assert result.output_text == ""
+
+
+def test_vllm_benchmark_counts_null_role_stream_without_none_text(monkeypatch, tmp_path) -> None:
+    class CharacterTokenCounter:
+        method = "tokenizers.encode(add_special_tokens=false)"
+
+        def count(self, text: str) -> int:
+            return len(text)
+
+    monkeypatch.setattr(
+        "llm_accel.benchmarks.latency.load_token_counter",
+        lambda tokenizer, revision: CharacterTokenCounter(),
+    )
+    server, base_url = _start_null_role_server(reasoning_chunks=["abc"])
+    try:
+        summary = run_latency_benchmark(
+            base_url=base_url,
+            model="mock",
+            backend="vllm",
+            tokenizer="resolved-tokenizer",
+            tokenizer_revision="b" * 40,
+            concurrency=1,
+            input_tokens=2,
+            output_tokens=10,
+            output_dir=tmp_path,
+            request_count=1,
+            prompt_texts=["hello"],
+        )
+    finally:
+        server.shutdown()
+
+    row = json.loads((tmp_path / "raw_requests.jsonl").read_text(encoding="utf-8"))
+    assert row["input_tokens"] == 37
+    assert row["output_tokens"] == len("abc") + len("".join(SUB_WORD_CHUNKS))
+    assert row["ttft_ms"] >= 45.0
+    assert summary["metrics"]["failed_count"] == 0
+
+
 def _start_server() -> tuple[ThreadingHTTPServer, str]:
     _OpenAIHandler.seen_paths = []
     server = ThreadingHTTPServer(("127.0.0.1", 0), _OpenAIHandler)
@@ -107,7 +272,9 @@ def test_openai_client_streaming_observes_ttft() -> None:
         server.shutdown()
 
     assert result.output_text == "hello world"
-    assert result.output_tokens == 2
+    # The client requests stream_options.include_usage, so server usage replaces the estimate.
+    assert (result.input_tokens, result.output_tokens) == (17, 4)
+    assert result.token_count_method == "server_usage"
     assert result.ttft_ms < result.total_latency_ms
     assert _OpenAIHandler.seen_paths == ["/v1/chat/completions"]
 
@@ -412,7 +579,8 @@ def test_openai_client_completion_endpoint_streaming() -> None:
         server.shutdown()
 
     assert result.output_text == "hello world"
-    assert result.output_tokens == 2
+    assert (result.input_tokens, result.output_tokens) == (17, 4)
+    assert result.token_count_method == "server_usage"
     assert result.ttft_ms < result.total_latency_ms
     assert _OpenAIHandler.seen_paths == ["/v1/completions"]
 
@@ -439,3 +607,253 @@ def test_open_loop_delayed_endpoint_exposes_client_queue_saturation(tmp_path) ->
     assert summary["metrics"]["queue_delay_ms"]["p95"] > 1.0
     assert any("Client saturation detected" in warning for warning in summary["warnings"])
     assert summary["metrics"]["end_to_end_latency_ms"]["p95"] > summary["metrics"]["latency_ms"]["p95"]
+
+
+def test_openai_compatible_streaming_requests_and_records_server_usage(tmp_path) -> None:
+    server, base_url = _start_null_role_server()
+    try:
+        summary = run_latency_benchmark(
+            base_url=base_url,
+            model="mock",
+            backend="openai-compatible",
+            concurrency=1,
+            input_tokens=4,
+            output_tokens=10,
+            output_dir=tmp_path / "usage",
+            request_count=2,
+            prompt_texts=["hello", "hello there"],
+        )
+    finally:
+        server.shutdown()
+
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "usage" / "raw_requests.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert all(payload["stream_options"] == {"include_usage": True} for payload in _NullRoleChunkHandler.payloads)
+    assert all(row["token_count_method"] == "server_usage" for row in rows)
+    assert all(row["input_tokens"] == 37 and row["output_tokens"] == 10 for row in rows)
+    assert summary["metadata"]["token_count_method"] == "server_usage"
+    assert not any("whitespace" in warning for warning in summary["warnings"])
+
+
+def test_backend_without_usage_falls_back_to_whitespace_with_a_warning(tmp_path) -> None:
+    server, base_url = _start_null_role_server(send_usage=False)
+    try:
+        summary = run_latency_benchmark(
+            base_url=base_url,
+            model="mock",
+            backend="openai-compatible",
+            concurrency=1,
+            input_tokens=4,
+            output_tokens=2,
+            output_dir=tmp_path / "no-usage",
+            request_count=2,
+            prompt_texts=["hello", "hello there"],
+        )
+    finally:
+        server.shutdown()
+
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "no-usage" / "raw_requests.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert all(row["token_count_method"] == "whitespace_estimate" for row in rows)
+    assert summary["metadata"]["token_count_method"] == "whitespace_estimate"
+    assert any("whitespace estimate" in warning for warning in summary["warnings"])
+
+
+def test_vllm_runs_request_fixed_output_length_by_default(monkeypatch, tmp_path) -> None:
+    class CharacterTokenCounter:
+        method = "tokenizers.encode(add_special_tokens=false)"
+
+        def count(self, text: str) -> int:
+            return len(text)
+
+    monkeypatch.setattr(
+        "llm_accel.benchmarks.latency.load_token_counter",
+        lambda tokenizer, revision: CharacterTokenCounter(),
+    )
+    server, base_url = _start_null_role_server()
+    try:
+        summary = run_latency_benchmark(
+            base_url=base_url,
+            model="mock",
+            backend="vllm",
+            tokenizer="resolved-tokenizer",
+            tokenizer_revision="b" * 40,
+            concurrency=1,
+            input_tokens=2,
+            output_tokens=10,
+            output_dir=tmp_path / "ignore-eos",
+            request_count=1,
+            prompt_texts=["hello"],
+        )
+    finally:
+        server.shutdown()
+
+    payload = _NullRoleChunkHandler.payloads[0]
+    assert payload["ignore_eos"] is True
+    assert payload["min_tokens"] == 10
+    assert summary["metadata"]["ignore_eos"] is True
+    assert summary["metadata"]["client_configuration"]["ignore_eos"] is True
+
+
+def test_other_backends_only_fix_output_length_when_requested(tmp_path) -> None:
+    server, base_url = _start_null_role_server()
+    try:
+        default_summary = run_latency_benchmark(
+            base_url=base_url,
+            model="mock",
+            backend="openai-compatible",
+            concurrency=1,
+            input_tokens=2,
+            output_tokens=10,
+            output_dir=tmp_path / "default",
+            request_count=1,
+            prompt_texts=["hello"],
+        )
+        default_payload = _NullRoleChunkHandler.payloads[-1]
+        run_latency_benchmark(
+            base_url=base_url,
+            model="mock",
+            backend="openai-compatible",
+            concurrency=1,
+            input_tokens=2,
+            output_tokens=10,
+            output_dir=tmp_path / "opted-in",
+            request_count=1,
+            prompt_texts=["hello"],
+            ignore_eos=True,
+        )
+        opted_in_payload = _NullRoleChunkHandler.payloads[-1]
+    finally:
+        server.shutdown()
+
+    assert "ignore_eos" not in default_payload
+    assert "min_tokens" not in default_payload
+    assert default_summary["metadata"]["ignore_eos"] is False
+    assert opted_in_payload["ignore_eos"] is True
+    assert opted_in_payload["min_tokens"] == 10
+
+
+class _VariableLengthHandler(_NullRoleChunkHandler):
+    call_count = 0
+
+    def do_POST(self) -> None:  # noqa: N802
+        content_length = int(self.headers.get("Content-Length", "0"))
+        json.loads(self.rfile.read(content_length).decode("utf-8"))
+        type(self).call_count += 1
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        for index in range(self.call_count):
+            self._event({"choices": [{"delta": {"content": f"tok{index} "}}]})
+        self.wfile.write(b"data: [DONE]\n\n")
+        self.wfile.flush()
+
+
+def test_varying_output_lengths_are_warned_about(tmp_path) -> None:
+    _VariableLengthHandler.call_count = 0
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _VariableLengthHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}/v1"
+    try:
+        summary = run_latency_benchmark(
+            base_url=base_url,
+            model="mock",
+            backend="openai-compatible",
+            concurrency=1,
+            input_tokens=2,
+            output_tokens=8,
+            output_dir=tmp_path / "variable",
+            request_count=3,
+            prompt_texts=["hello"],
+        )
+    finally:
+        server.shutdown()
+
+    assert any("Output token counts vary" in warning for warning in summary["warnings"])
+
+
+def test_configured_api_key_env_is_used_and_never_persisted(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("BENCH_KEY", "secret-token-value")
+    monkeypatch.setenv("OPENAI_API_KEY", "wrong-default-key")
+    server, base_url = _start_null_role_server()
+    try:
+        run_latency_benchmark(
+            base_url=base_url,
+            model="mock",
+            backend="openai-compatible",
+            concurrency=1,
+            input_tokens=2,
+            output_tokens=10,
+            output_dir=tmp_path / "auth",
+            request_count=1,
+            warmup_count=1,
+            prompt_texts=["hello"],
+            api_key_env="BENCH_KEY",
+        )
+    finally:
+        server.shutdown()
+
+    authorizations = {headers.get("Authorization") for headers in _NullRoleChunkHandler.headers_seen}
+    assert authorizations == {"Bearer secret-token-value"}
+    written = "".join(
+        path.read_text(encoding="utf-8", errors="ignore")
+        for path in (tmp_path / "auth").rglob("*")
+        if path.is_file()
+    )
+    assert "secret-token-value" not in written
+
+
+def test_endpoint_health_uses_the_configured_api_key_env(monkeypatch) -> None:
+    from llm_accel.serving.health import check_endpoint_health
+
+    monkeypatch.setenv("BENCH_KEY", "secret-token-value")
+    server, base_url = _start_null_role_server()
+    try:
+        health = check_endpoint_health(base_url, timeout_seconds=2.0, api_key_env="BENCH_KEY")
+    finally:
+        server.shutdown()
+
+    assert health["status"] == "healthy"
+    assert _NullRoleChunkHandler.headers_seen[-1]["Authorization"] == "Bearer secret-token-value"
+
+
+def test_sweep_config_api_key_env_reaches_the_endpoint(tmp_path, monkeypatch) -> None:
+    from llm_accel.benchmarks.sweep import run_sweep
+
+    monkeypatch.setenv("SWEEP_KEY", "sweep-secret")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    server, base_url = _start_null_role_server()
+    config_path = tmp_path / "sweep.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "run:",
+                "  name: auth-sweep",
+                "  measured_requests: 1",
+                "endpoint:",
+                f"  base_url: {base_url}",
+                "  api_key_env: SWEEP_KEY",
+                "  backend: openai-compatible",
+                "model:",
+                "  name: mock",
+                "workload:",
+                "  input_tokens: [8]",
+                "  output_tokens: [2]",
+                "  concurrency: [1]",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    try:
+        run_sweep(config_path, tmp_path / "sweep")
+    finally:
+        server.shutdown()
+
+    assert {headers.get("Authorization") for headers in _NullRoleChunkHandler.headers_seen} == {
+        "Bearer sweep-secret"
+    }

@@ -7,7 +7,7 @@ from llm_accel.metrics.io import write_json, write_text_atomic
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.metrics.memory import sample_gpu_memory
 from llm_accel.serving.health import check_endpoint_health
-from llm_accel.serving.openai_client import OpenAICompatibleClient
+from llm_accel.serving.openai_client import DEFAULT_API_KEY_ENV, OpenAICompatibleClient
 from llm_accel.serving.vllm import build_vllm_command
 
 
@@ -33,6 +33,7 @@ def validate_vllm_environment(
     num_speculative_tokens: int | None = None,
     timeout_seconds: float = 5.0,
     smoke: bool = False,
+    api_key_env: str = DEFAULT_API_KEY_ENV,
 ) -> dict[str, object]:
     command = build_vllm_command(
         model=model,
@@ -54,8 +55,12 @@ def validate_vllm_environment(
     )
     import_available = importlib.util.find_spec("vllm") is not None
     gpu_memory = sample_gpu_memory().to_dict()
-    endpoint_health = check_endpoint_health(base_url, timeout_seconds=timeout_seconds)
-    smoke_result = _run_smoke(base_url, model, timeout_seconds) if smoke else {
+    endpoint_health = check_endpoint_health(
+        base_url,
+        timeout_seconds=timeout_seconds,
+        api_key_env=api_key_env,
+    )
+    smoke_result = _run_smoke(base_url, model, timeout_seconds, api_key_env) if smoke else {
         "attempted": False,
         "passed": None,
         "error": None,
@@ -66,7 +71,9 @@ def validate_vllm_environment(
     if not gpu_memory["available"]:
         blockers.append(f"GPU telemetry unavailable: {gpu_memory.get('error')}")
     if not endpoint_health["healthy"]:
-        blockers.append(f"endpoint health check failed: {endpoint_health.get('error')}")
+        blockers.append(
+            f"endpoint health check {endpoint_health.get('status')}: {endpoint_health.get('error')}"
+        )
     if smoke and not smoke_result["passed"]:
         blockers.append(f"smoke completion failed: {smoke_result.get('error')}")
 
@@ -94,13 +101,19 @@ def validate_vllm_environment(
     return report
 
 
-def _run_smoke(base_url: str, model: str, timeout_seconds: float) -> dict[str, object]:
+def _run_smoke(
+    base_url: str,
+    model: str,
+    timeout_seconds: float,
+    api_key_env: str = DEFAULT_API_KEY_ENV,
+) -> dict[str, object]:
     try:
         client = OpenAICompatibleClient(
             base_url=base_url,
             model=model,
             backend="vllm",
             request_timeout_seconds=timeout_seconds,
+            api_key_env=api_key_env,
         )
         result = client.complete("Say ready.", max_tokens=8, stream=True)
         return {
@@ -137,7 +150,7 @@ def _write_markdown(path: Path, report: dict[str, object]) -> None:
             f"- Ready for hardware benchmark: `{report['ready_for_hardware_benchmark']}`",
             f"- vLLM import available: `{checks['vllm_import_available']}`",
             f"- GPU telemetry available: `{gpu['available']}`",
-            f"- Endpoint healthy: `{endpoint['healthy']}`",
+            f"- Endpoint status: `{endpoint['status']}`",
             f"- Smoke attempted: `{smoke['attempted']}`",
             "",
             "## Startup Command",

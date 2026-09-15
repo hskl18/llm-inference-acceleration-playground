@@ -91,6 +91,8 @@ Hardware-oriented metadata also includes `model_revision`, `tokenizer`, `tokeniz
 For vLLM evidence, `input_tokens` comes from server usage so chat-template tokens are included.
 Per-request `output_tokens`, TPOT, and output tokens/sec use final-text counts from the resolved tokenizer rather than whitespace splitting.
 The canonical method evidence is `prompt=server_usage;output=tokenizers.encode(add_special_tokens=false)`.
+For other OpenAI-compatible backends, `metadata.token_count_method` records what the endpoint actually reported: `server_usage`, `whitespace_estimate`, or a `mixed:` value when requests in one run disagreed.
+The same value appears on every raw request row, so summary and raw evidence cannot drift apart.
 The endpoint fingerprint binds redacted remote endpoint evidence without persisting the endpoint URL.
 Missing optional hardware fields remain `null` in local or mock runs rather than being inferred.
 
@@ -98,13 +100,15 @@ The `metadata.api_kind` field records whether the run used an OpenAI-compatible 
 
 Fixed-prompt benchmark runs add `metadata.workload_mode`, `metadata.prompt_count`, and `metadata.workload_fingerprint`.
 The fingerprint is a short hash of the prompt set used for comparison safety; prompt text is not stored in the metadata.
+Every run also records `metadata.unique_prompt_count`, the number of distinct measured prompts.
+Synthetic prompts are seeded per request and unique, so a value below the request count means the workload repeats prompts and a caching backend can serve the repeats from cache.
 
-All runs record `metadata.request_schedule`, `metadata.request_rate_rps`, `metadata.client_processes`, `metadata.client_workers`, `metadata.queue_delay_warning_ms`, and a canonical `metadata.client_configuration` mapping.
+All runs record `metadata.request_schedule`, `metadata.request_rate_rps`, `metadata.client_processes`, `metadata.client_workers`, `metadata.queue_delay_warning_ms`, `metadata.ignore_eos`, and a canonical `metadata.client_configuration` mapping.
 Synthetic runs fingerprint the measured prompt sequence so repeated-run comparability does not depend on missing values.
 
 The metrics block includes `queue_delay_ms` and `end_to_end_latency_ms` distributions alongside endpoint-call latency.
 
-Prefix-reuse prompt sets also record `metadata.shared_prefix_tokens_estimate` and `metadata.shared_prefix_fingerprint`.
+Runs also record `metadata.shared_prefix_tokens_estimate` and `metadata.shared_prefix_fingerprint`.
 These fields help identify workloads designed for prefix-cache benchmarking without writing shared prompt text to artifacts.
 
 Memory telemetry uses `nvidia-smi` when available.

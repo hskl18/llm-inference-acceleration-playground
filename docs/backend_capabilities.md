@@ -31,6 +31,9 @@ Current named backends:
 
 `llm-accel doctor --backend vllm` also includes optional GPU memory telemetry. Missing `nvidia-smi` is reported as unavailable, not as a test failure.
 
-`llm-accel doctor --base-url ...` checks endpoint health using `/models`. For `mock://local`, health is always available and does not require network access.
+`llm-accel doctor --base-url ...` checks endpoint health with `GET /models`.
+The endpoint is `healthy` only when `/models` returns a 2xx response with a JSON body.
+A 401 or 403 response is reported as `unauthorized`, other HTTP errors or a non-JSON body as `unhealthy`, and a connection failure or timeout as `unreachable`.
+For `mock://local`, health is always available and does not require network access.
 
 Benchmark commands use `/v1/chat/completions` by default. Pass `--api-kind completion` when targeting an OpenAI-compatible `/v1/completions` server.
