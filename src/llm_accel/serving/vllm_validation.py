@@ -66,7 +66,9 @@ def validate_vllm_environment(
     if not gpu_memory["available"]:
         blockers.append(f"GPU telemetry unavailable: {gpu_memory.get('error')}")
     if not endpoint_health["healthy"]:
-        blockers.append(f"endpoint health check failed: {endpoint_health.get('error')}")
+        blockers.append(
+            f"endpoint health check {endpoint_health.get('status')}: {endpoint_health.get('error')}"
+        )
     if smoke and not smoke_result["passed"]:
         blockers.append(f"smoke completion failed: {smoke_result.get('error')}")
 
@@ -137,7 +139,7 @@ def _write_markdown(path: Path, report: dict[str, object]) -> None:
             f"- Ready for hardware benchmark: `{report['ready_for_hardware_benchmark']}`",
             f"- vLLM import available: `{checks['vllm_import_available']}`",
             f"- GPU telemetry available: `{gpu['available']}`",
-            f"- Endpoint healthy: `{endpoint['healthy']}`",
+            f"- Endpoint status: `{endpoint['status']}`",
             f"- Smoke attempted: `{smoke['attempted']}`",
             "",
             "## Startup Command",
