@@ -33,7 +33,7 @@ from llm_accel.serving.vllm import build_vllm_command
 from llm_accel.serving.vllm_plan import create_vllm_benchmark_plan
 from llm_accel.serving.vllm_validation import validate_vllm_environment
 from llm_accel.speculative_decoding.analysis import acceptance_curve, write_speculative_reports
-from llm_accel.speculative_decoding.vanilla import run_toy_speculative
+from llm_accel.speculative_decoding.analytic import read_vllm_acceptance, speculative_speedup
 from llm_accel.workloads.prompts import load_prompt_file
 
 
@@ -235,10 +235,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     quant = subparsers.add_parser("quantization", help="Quantization comparison helpers")
     quant_sub = quant.add_subparsers(dest="quant_command", required=True)
-    compare = quant_sub.add_parser("compare", help="Compare benchmark metadata across quantization modes")
-    compare.add_argument("--base-url", default="mock://local")
+    compare = quant_sub.add_parser("compare", help="Compare quantization modes across one endpoint per mode")
     compare.add_argument("--model", default="mock-model")
-    compare.add_argument("--modes", required=True, help="Comma-separated modes, for example none,int8,int4")
+    compare.add_argument(
+        "--mode",
+        action="append",
+        required=True,
+        metavar="MODE=BASE_URL",
+        help="Repeatable mode and its own endpoint, for example none=http://localhost:8000/v1; the first is the baseline",
+    )
     compare.add_argument("--concurrency", type=int, default=1)
     compare.add_argument("--input-tokens", type=int, default=128)
     compare.add_argument("--output-tokens", type=int, default=64)
@@ -275,25 +280,49 @@ def build_parser() -> argparse.ArgumentParser:
     task.add_argument("--api-key-env", default=DEFAULT_API_KEY_ENV)
     task.set_defaults(func=cmd_eval_task)
 
-    speculative = subparsers.add_parser("speculative", help="Speculative decoding experiments")
+    speculative = subparsers.add_parser("speculative", help="Speculative decoding analysis")
     spec_sub = speculative.add_subparsers(dest="spec_command", required=True)
-    spec_run = spec_sub.add_parser("run", help="Run toy speculative decoding accounting")
-    spec_run.add_argument("--lookahead", type=int, default=4)
-    spec_run.add_argument("--prompts", default="")
-    spec_run.add_argument("--output-dir", default="results/runs/speculative-toy")
+    spec_run = spec_sub.add_parser(
+        "run",
+        help="Evaluate the Leviathan et al. 2023 speculative decoding speedup model",
+    )
+    spec_run.add_argument("--lookahead", type=int, default=4, help="Draft tokens proposed per target step")
+    spec_run.add_argument(
+        "--acceptance-rate",
+        type=float,
+        default=0.7,
+        help="Probability that a drafted token is accepted by the target model",
+    )
+    spec_run.add_argument(
+        "--draft-cost-ratio",
+        type=float,
+        default=0.2,
+        help="Draft model step cost as a fraction of one target model step",
+    )
+    spec_run.add_argument(
+        "--metrics-base-url",
+        help="vLLM endpoint whose /metrics acceptance counters should be read and reported",
+    )
+    spec_run.add_argument("--api-key-env", default=DEFAULT_API_KEY_ENV)
+    spec_run.add_argument("--output-dir", default="results/runs/speculative-analysis")
     spec_run.add_argument("--draft-model", default="mock-draft")
     spec_run.add_argument("--target-model", default="mock-target")
-    spec_run.add_argument("--acceptance-mod", type=int, default=3)
     spec_run.set_defaults(func=cmd_speculative_run)
 
     return parser
 
 
 def _add_vllm_optimization_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--enable-prefix-caching", action="store_true")
-    parser.add_argument("--enable-chunked-prefill", action="store_true")
+    # vLLM enables prefix caching and chunked prefill by default, so the generated command always
+    # states them explicitly; the default here is off, which emits the --no- spelling.
+    parser.add_argument("--enable-prefix-caching", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--enable-chunked-prefill", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--max-num-batched-tokens", type=int)
     parser.add_argument("--max-num-seqs", type=int)
+    parser.add_argument(
+        "--speculative-method",
+        help="vLLM speculative method, for example draft_model or ngram (default: draft_model with --speculative-model)",
+    )
     parser.add_argument("--speculative-model")
     parser.add_argument("--num-speculative-tokens", type=int)
 
@@ -543,6 +572,7 @@ def cmd_vllm_command(args: argparse.Namespace) -> int:
         enable_chunked_prefill=args.enable_chunked_prefill,
         max_num_batched_tokens=args.max_num_batched_tokens,
         max_num_seqs=args.max_num_seqs,
+        speculative_method=args.speculative_method,
         speculative_model=args.speculative_model,
         num_speculative_tokens=args.num_speculative_tokens,
     )
@@ -571,6 +601,7 @@ def cmd_vllm_validate(args: argparse.Namespace) -> int:
         enable_chunked_prefill=args.enable_chunked_prefill,
         max_num_batched_tokens=args.max_num_batched_tokens,
         max_num_seqs=args.max_num_seqs,
+        speculative_method=args.speculative_method,
         speculative_model=args.speculative_model,
         num_speculative_tokens=args.num_speculative_tokens,
         timeout_seconds=args.timeout_seconds,
@@ -611,6 +642,7 @@ def cmd_vllm_plan(args: argparse.Namespace) -> int:
         enable_chunked_prefill=args.enable_chunked_prefill,
         max_num_batched_tokens=args.max_num_batched_tokens,
         max_num_seqs=args.max_num_seqs,
+        speculative_method=args.speculative_method,
         speculative_model=args.speculative_model,
         num_speculative_tokens=args.num_speculative_tokens,
     )
@@ -619,12 +651,18 @@ def cmd_vllm_plan(args: argparse.Namespace) -> int:
 
 
 def cmd_quantization_compare(args: argparse.Namespace) -> int:
-    modes = [mode.strip() for mode in args.modes.split(",") if mode.strip()]
+    mode_endpoints: dict[str, str] = {}
+    for item in args.mode:
+        mode, separator, base_url = item.partition("=")
+        if not separator or not mode.strip() or not base_url.strip():
+            raise ValueError(f"--mode must be MODE=BASE_URL, got {item!r}")
+        if mode.strip() in mode_endpoints:
+            raise ValueError(f"quantization mode {mode.strip()!r} was given twice")
+        mode_endpoints[mode.strip()] = base_url.strip()
     sanity_prompts = load_prompt_file(args.sanity_prompts) if args.sanity_prompts else None
     report = compare_quantization_modes(
-        base_url=args.base_url,
         model=args.model,
-        modes=modes,
+        mode_endpoints=mode_endpoints,
         output_dir=args.output_dir,
         concurrency=args.concurrency,
         input_tokens=args.input_tokens,
@@ -683,19 +721,31 @@ def cmd_eval_task(args: argparse.Namespace) -> int:
 
 
 def cmd_speculative_run(args: argparse.Namespace) -> int:
-    prompts = ["synthetic prompt"]
-    if args.prompts:
-        path = Path(args.prompts)
-        if path.exists():
-            prompts = load_prompt_file(path)
-    result = run_toy_speculative(prompts, lookahead=args.lookahead, acceptance_mod=args.acceptance_mod)
+    measured = (
+        read_vllm_acceptance(args.metrics_base_url, api_key_env=args.api_key_env)
+        if args.metrics_base_url
+        else None
+    )
+    # A served acceptance rate is evidence; the flag value is only an assumption.
+    from_metrics = measured is not None and measured["acceptance_rate"] is not None
+    acceptance_rate = float(measured["acceptance_rate"]) if from_metrics else args.acceptance_rate
+    result = speculative_speedup(
+        acceptance_rate=acceptance_rate,
+        lookahead=args.lookahead,
+        draft_cost_ratio=args.draft_cost_ratio,
+    )
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "draft_model": args.draft_model,
         "target_model": args.target_model,
+        "acceptance_rate_source": "vllm_metrics" if from_metrics else "declared",
+        "measured_acceptance": measured,
         "result": result.to_dict(),
-        "acceptance_curve": acceptance_curve(prompts=prompts, lookahead=args.lookahead),
+        "acceptance_curve": acceptance_curve(
+            lookahead=args.lookahead,
+            draft_cost_ratio=args.draft_cost_ratio,
+        ),
     }
     write_speculative_reports(output_dir, payload)
     print(json.dumps(payload, indent=2, sort_keys=True))

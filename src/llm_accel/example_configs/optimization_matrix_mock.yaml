@@ -41,18 +41,21 @@ quality:
 
 profiles:
   baseline:
-    server_command: mock-server --model mock-model --profile baseline
+    server_command: mock-server --model mock-model --profile baseline --no-enable-prefix-caching --no-enable-chunked-prefill
   prefix-cache:
-    server_command: mock-server --model mock-model --profile prefix-cache --enable-prefix-caching
+    server_command: mock-server --model mock-model --profile prefix-cache --enable-prefix-caching --no-enable-chunked-prefill
     prefix_cache: true
   chunked-prefill:
-    server_command: mock-server --model mock-model --profile chunked-prefill --enable-chunked-prefill
+    server_command: mock-server --model mock-model --profile chunked-prefill --no-enable-prefix-caching --enable-chunked-prefill
     chunked_prefill: true
   quantized:
-    server_command: mock-server --model mock-model --profile quantized --quantization int8
-    quantization: int8
+    server_command: mock-server --model mock-model --profile quantized --no-enable-prefix-caching --no-enable-chunked-prefill --quantization fp8
+    quantization: fp8
   speculative:
-    server_command: mock-server --model mock-model --profile speculative --speculative-model mock-draft
+    server_command: >-
+      mock-server --model mock-model --profile speculative
+      --no-enable-prefix-caching --no-enable-chunked-prefill
+      --speculative-config '{"method":"draft_model","model":"mock-draft","num_speculative_tokens":4}'
     speculative_model: mock-draft
     speculative_model_revision: cccccccccccccccccccccccccccccccccccccccc
     num_speculative_tokens: 4

@@ -9,6 +9,17 @@ def test_capability_matrix_includes_vllm() -> None:
     assert "prefix_caching" in capabilities["vllm"]["optimization_features"]
 
 
+def test_quantization_modes_exclude_names_vllm_cannot_resolve() -> None:
+    capabilities = list_capabilities()
+
+    for backend in ["vllm", "mock"]:
+        modes = capabilities[backend]["quantization_modes"]
+        assert "int8" not in modes
+        assert "int4" not in modes
+    assert capabilities["mock"]["quantization_modes"] == ["none"]
+    assert capabilities["tensorrt-llm"]["quantization_modes"] == ["unknown"]
+
+
 def test_capability_matrix_includes_common_openai_compatible_backends() -> None:
     capabilities = list_capabilities()
 

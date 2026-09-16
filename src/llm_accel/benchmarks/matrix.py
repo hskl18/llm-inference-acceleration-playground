@@ -26,7 +26,8 @@ from llm_accel.metrics.optimization_profile import (
 from llm_accel.reports.comparison import compare_run_summaries
 from llm_accel.reports.validation import validate_run_dir
 from llm_accel.serving.openai_client import DEFAULT_API_KEY_ENV
-from llm_accel.serving.versions import detect_backend_version
+from llm_accel.serving.versions import resolve_backend_version
+from llm_accel.serving.vllm import normalize_vllm_quantization
 from llm_accel.workloads.prompts import load_prompt_file
 
 
@@ -239,13 +240,20 @@ def _validate_matrix_config(config: dict[str, Any]) -> dict[str, dict[str, Any]]
             not isinstance(profile["quantization"], str) or not profile["quantization"].strip()
         ):
             errors.append(f"profiles.{name}.quantization must be a non-empty string such as 'none'")
+        elif isinstance(profile.get("quantization"), str) and _profile_backend(config, profile) == "vllm":
+            # vLLM accepts any --quantization string and only fails at engine start, so a
+            # misspelled mode would otherwise be recorded as a real treatment.
+            try:
+                normalize_vllm_quantization(profile["quantization"])
+            except ValueError as exc:
+                errors.append(f"profiles.{name}.quantization is invalid: {exc}")
         command = profile.get("server_command")
         command_file = profile.get("server_command_file")
         if not isinstance(command, str) and not isinstance(command_file, str):
             errors.append(f"profiles.{name} requires server_command or server_command_file")
     real_endpoints: list[str] = []
     for name, profile in profiles.items():
-        backend = str(profile.get("backend", get_path(config, "endpoint.backend", "openai-compatible")))
+        backend = _profile_backend(config, profile)
         if backend == "mock":
             continue
         base_url = profile.get("base_url")
@@ -428,10 +436,11 @@ def _run_planned_cell(
     summary_metadata = summary.get("metadata")
     if not isinstance(summary_metadata, dict):
         raise ValueError("summary metadata must be a mapping")
+    backend_version, _ = resolve_backend_version(backend, base_url)
     optimization_profile = create_optimization_profile(
         name=profile_name,
         backend=backend,
-        backend_version=detect_backend_version("mock" if base_url.startswith("mock://") else backend),
+        backend_version=backend_version,
         server_command=command_text,
         model=model,
         model_revision=model_revision,
@@ -889,6 +898,10 @@ def _numbers_close(value: object, expected: float) -> bool:
 
 def _as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else [value]
+
+
+def _profile_backend(config: dict[str, Any], profile: dict[str, Any]) -> str:
+    return str(profile.get("backend", get_path(config, "endpoint.backend", "openai-compatible")))
 
 
 def _resolve_profile_tokenizer(

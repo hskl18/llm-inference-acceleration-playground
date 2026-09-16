@@ -4,49 +4,51 @@ from pathlib import Path
 
 from llm_accel.metrics.io import write_json, write_text_atomic
 from llm_accel.metrics.manifest import write_run_manifest
-from llm_accel.speculative_decoding.vanilla import run_toy_speculative
+from llm_accel.speculative_decoding.analytic import speculative_speedup
 
 
 def baseline_comparison(result: dict[str, object]) -> dict[str, object]:
-    baseline_steps = int(result["baseline_steps"])
-    speculative_steps = int(result["speculative_steps"])
-    saved_steps = baseline_steps - speculative_steps
-    relative_step_reduction = saved_steps / baseline_steps if baseline_steps else 0.0
+    """Contrast target-only decoding with the analytical speculative configuration."""
+    tokens_per_step = float(result["expected_tokens_per_target_step"])
+    cost_per_step = float(result["cost_per_target_step"])
+    speedup = float(result["estimated_speedup"])
     return {
         "baseline": {
             "name": "target-only decoding",
-            "steps": baseline_steps,
+            "tokens_per_target_step": 1.0,
+            "cost_per_target_step": 1.0,
         },
         "speculative": {
-            "name": "toy speculative decoding",
-            "steps": speculative_steps,
-            "draft_calls": result["draft_calls"],
-            "target_calls": result["target_calls"],
-            "accepted_tokens": result["accepted_tokens"],
-            "rejected_tokens": result["rejected_tokens"],
+            "name": "speculative decoding (analytical model)",
+            "tokens_per_target_step": tokens_per_step,
+            "cost_per_target_step": cost_per_step,
             "acceptance_rate": result["acceptance_rate"],
+            "lookahead": result["lookahead"],
+            "draft_cost_ratio": result["draft_cost_ratio"],
+            "expected_accepted_draft_tokens": result["expected_accepted_draft_tokens"],
+            "expected_rejected_draft_tokens": result["expected_rejected_draft_tokens"],
         },
-        "estimated_speedup": result["estimated_speedup"],
-        "saved_steps": saved_steps,
-        "relative_step_reduction": relative_step_reduction,
-        "interpretation": _baseline_interpretation(float(result["estimated_speedup"])),
+        "estimated_speedup": speedup,
+        "relative_latency_reduction": 1 - 1 / speedup if speedup > 0 else 0.0,
+        "interpretation": _baseline_interpretation(speedup),
     }
 
 
 def acceptance_curve(
     *,
-    prompts: list[str],
     lookahead: int,
-    acceptance_mod_values: list[int] | None = None,
+    draft_cost_ratio: float,
+    acceptance_rates: list[float] | None = None,
 ) -> list[dict[str, object]]:
-    values = acceptance_mod_values or [1, 2, 3, 4, 8]
-    rows: list[dict[str, object]] = []
-    for acceptance_mod in values:
-        result = run_toy_speculative(prompts, lookahead=lookahead, acceptance_mod=acceptance_mod)
-        payload = result.to_dict()
-        payload["acceptance_mod"] = acceptance_mod
-        rows.append(payload)
-    return rows
+    rates = acceptance_rates or [0.1, 0.3, 0.5, 0.7, 0.9]
+    return [
+        speculative_speedup(
+            acceptance_rate=rate,
+            lookahead=lookahead,
+            draft_cost_ratio=draft_cost_ratio,
+        ).to_dict()
+        for rate in rates
+    ]
 
 
 def write_speculative_reports(output_dir: str | Path, payload: dict[str, object]) -> None:
@@ -76,28 +78,44 @@ def write_speculative_reports(output_dir: str | Path, payload: dict[str, object]
 def _write_markdown(path: Path, payload: dict[str, object]) -> None:
     result = payload["result"]
     curve = payload["acceptance_curve"]
+    measured = payload.get("measured_acceptance")
     rows = [
-        f"| {row['acceptance_mod']} | {row['acceptance_rate']:.3f} | {row['estimated_speedup']:.3f} | "
-        f"{row['accepted_tokens']} | {row['rejected_tokens']} |"
+        f"| {row['acceptance_rate']:.3f} | {row['expected_tokens_per_target_step']:.3f} | "
+        f"{row['estimated_speedup']:.3f} | {row['expected_accepted_draft_tokens']:.3f} | "
+        f"{row['expected_rejected_draft_tokens']:.3f} |"
         for row in curve
     ]
+    measured_lines = ["- Measured acceptance: not read from a server."]
+    if isinstance(measured, dict) and measured.get("acceptance_rate") is not None:
+        measured_lines = [
+            f"- Measured acceptance rate from vLLM `/metrics`: `{measured['acceptance_rate']:.3f}`",
+            f"- Observed draft tokens per draft: `{measured.get('observed_lookahead')}`",
+        ]
+    elif isinstance(measured, dict):
+        measured_lines = [f"- Measured acceptance unavailable: `{measured.get('error')}`"]
     text = "\n".join(
         [
-            "# Speculative Decoding Toy Report",
+            "# Speculative Decoding Analytical Report",
             "",
             f"- Draft model: `{payload['draft_model']}`",
             f"- Target model: `{payload['target_model']}`",
-            f"- Lookahead: `{result['lookahead']}`",
+            f"- Model: `{result['model']}`",
             f"- Acceptance rate: `{result['acceptance_rate']:.3f}`",
+            f"- Lookahead: `{result['lookahead']}`",
+            f"- Draft cost ratio: `{result['draft_cost_ratio']:.3f}`",
+            f"- Expected tokens per target step: `{result['expected_tokens_per_target_step']:.3f}`",
             f"- Estimated speedup: `{result['estimated_speedup']:.3f}`",
+            *measured_lines,
             "",
             "## Acceptance Curve",
             "",
-            "| Acceptance mod | Acceptance rate | Estimated speedup | Accepted tokens | Rejected tokens |",
+            "| Acceptance rate | Tokens per target step | Estimated speedup | Accepted draft tokens | Rejected draft tokens |",
             "| ---: | ---: | ---: | ---: | ---: |",
             *rows,
             "",
-            "This is a toy accounting model. It is useful for reasoning about draft quality and verification cost, not for claiming production speedups.",
+            "This is the closed form from Leviathan, Kalman and Matias (2023), arXiv:2211.17192.",
+            "It predicts a walltime improvement from acceptance rate, lookahead, and draft cost ratio.",
+            "It is not a measured serving benchmark: verification overhead, batching, and memory pressure are not modelled.",
             "",
         ]
     )
@@ -106,10 +124,10 @@ def _write_markdown(path: Path, payload: dict[str, object]) -> None:
 
 def _baseline_interpretation(estimated_speedup: float) -> str:
     if estimated_speedup > 1.0:
-        return "The toy accounting predicts fewer decoding steps than target-only decoding."
+        return "The model predicts fewer target model steps per token than target-only decoding."
     if estimated_speedup == 1.0:
-        return "The toy accounting predicts parity with target-only decoding."
-    return "The toy accounting predicts overhead versus target-only decoding."
+        return "The model predicts parity with target-only decoding."
+    return "The model predicts that draft cost outweighs the accepted tokens."
 
 
 def _write_baseline_markdown(path: Path, comparison: dict[str, object]) -> None:
@@ -119,17 +137,19 @@ def _write_baseline_markdown(path: Path, comparison: dict[str, object]) -> None:
         [
             "# Baseline Comparison",
             "",
-            "| Mode | Steps | Notes |",
-            "| --- | ---: | --- |",
-            f"| {baseline['name']} | {baseline['steps']} | Baseline target model steps |",
-            f"| {speculative['name']} | {speculative['steps']} | Draft+target calls plus rejection cost |",
+            "| Mode | Tokens per target step | Cost per target step | Notes |",
+            "| --- | ---: | ---: | --- |",
+            f"| {baseline['name']} | {baseline['tokens_per_target_step']:.3f} | "
+            f"{baseline['cost_per_target_step']:.3f} | One target forward pass per token |",
+            f"| {speculative['name']} | {speculative['tokens_per_target_step']:.3f} | "
+            f"{speculative['cost_per_target_step']:.3f} | One target verification plus "
+            f"{speculative['lookahead']} draft steps |",
             "",
             f"- Estimated speedup: `{comparison['estimated_speedup']:.3f}`",
-            f"- Saved steps: `{comparison['saved_steps']}`",
-            f"- Relative step reduction: `{comparison['relative_step_reduction']:.3f}`",
+            f"- Relative latency reduction: `{comparison['relative_latency_reduction']:.3f}`",
             f"- Interpretation: {comparison['interpretation']}",
             "",
-            "This comparison is an accounting model, not a measured serving benchmark.",
+            "This comparison is an analytical model, not a measured serving benchmark.",
             "",
         ]
     )

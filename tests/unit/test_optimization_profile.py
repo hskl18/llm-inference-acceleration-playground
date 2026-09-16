@@ -14,8 +14,8 @@ def _profile(**overrides):
     values = {
         "name": "baseline",
         "backend": "vllm",
-        "backend_version": "0.10.0",
-        "server_command": "python -m vllm.entrypoints.openai.api_server --model model\n",
+        "backend_version": "0.29.0",
+        "server_command": "vllm serve model --no-enable-prefix-caching --no-enable-chunked-prefill\n",
         "model": "model",
         "model_revision": "a" * 40,
         "tokenizer": "model",
@@ -59,8 +59,8 @@ def test_material_treatment_change_updates_fingerprints() -> None:
     baseline = _profile()
     prefix = _profile(
         server_command=(
-            "python -m vllm.entrypoints.openai.api_server --model model "
-            "--enable-prefix-caching\n"
+            "vllm serve model "
+            "--enable-prefix-caching --no-enable-chunked-prefill\n"
         ),
         prefix_cache=True,
     )

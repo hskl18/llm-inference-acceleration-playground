@@ -579,12 +579,14 @@ def test_cli_quantization_compare(tmp_path: Path) -> None:
             [
                 "quantization",
                 "compare",
-                "--base-url",
-                "mock://local",
                 "--model",
                 "mock-model",
-                "--modes",
-                "none,int8",
+                "--backend",
+                "openai-compatible",
+                "--mode",
+                "none=mock://quant-none",
+                "--mode",
+                "fp8=mock://quant-fp8",
                 "--request-count",
                 "2",
                 "--output-dir",
@@ -598,11 +600,32 @@ def test_cli_quantization_compare(tmp_path: Path) -> None:
     assert (output_dir / "manifest.json").exists()
     assert (output_dir / "quantization_comparison.md").exists()
     assert (output_dir / "none" / "summary.json").exists()
-    assert (output_dir / "int8" / "plots" / "latency.svg").exists()
+    assert (output_dir / "fp8" / "plots" / "latency.svg").exists()
     report = json.loads((output_dir / "quantization_comparison.json").read_text(encoding="utf-8"))
+    assert report["baseline_mode"] == "none"
     assert report["runs"][0]["quality_sanity"]["passed"] is True
-    assert report["runs"][0]["support_status"] == "supported"
     assert report["runs"][0]["measured"] is True
+    assert report["runs"][1]["quality_vs_baseline"]["exact_match_rate"] == 1.0
+
+
+def test_cli_quantization_compare_rejects_a_shared_endpoint(tmp_path: Path) -> None:
+    assert (
+        main(
+            [
+                "quantization",
+                "compare",
+                "--model",
+                "mock-model",
+                "--mode",
+                "none=mock://one",
+                "--mode",
+                "fp8=mock://one",
+                "--output-dir",
+                str(tmp_path / "shared"),
+            ]
+        )
+        == 2
+    )
 
 
 def test_cli_quantization_compare_reports_unsupported_mode(tmp_path: Path) -> None:
@@ -613,12 +636,12 @@ def test_cli_quantization_compare_reports_unsupported_mode(tmp_path: Path) -> No
             [
                 "quantization",
                 "compare",
-                "--base-url",
-                "mock://local",
                 "--model",
                 "mock-model",
-                "--modes",
-                "none,fp8",
+                "--mode",
+                "none=mock://quant-none",
+                "--mode",
+                "fp8=mock://quant-fp8",
                 "--request-count",
                 "1",
                 "--output-dir",
@@ -638,8 +661,9 @@ def test_cli_quantization_compare_reports_unsupported_mode(tmp_path: Path) -> No
 def test_cli_vllm_command(capsys) -> None:
     assert main(["vllm", "command", "--model", "test-model", "--port", "8001", "--dtype", "auto"]) == 0
     output = capsys.readouterr().out
-    assert "vllm.entrypoints.openai.api_server" in output
-    assert "--model test-model" in output
+    assert output.startswith("vllm serve test-model ")
+    assert "--no-enable-prefix-caching" in output
+    assert "--no-enable-chunked-prefill" in output
 
 
 def test_cli_vllm_validate_writes_blocker_report(tmp_path: Path) -> None:

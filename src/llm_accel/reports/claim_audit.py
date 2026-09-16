@@ -16,7 +16,16 @@ from llm_accel.metrics.optimization_profile import (
 from llm_accel.metrics.schemas import SCHEMA_VERSION, RequestMetrics
 from llm_accel.metrics.token_counting import is_local_tokenizer_reference
 from llm_accel.reports.validation import validate_run_dir
-from llm_accel.serving.vllm import normalize_vllm_dtype, optimization_profile_name
+from llm_accel.serving.vllm import (
+    VLLM_SERVE_ARGV_PREFIX,
+    is_vllm_serve_argv,
+    normalize_vllm_dtype,
+    optimization_profile_name,
+    vllm_boolean_flag,
+    vllm_flag_value,
+    vllm_served_model,
+    vllm_speculative_config,
+)
 
 
 MIN_MEASURED_REQUESTS = 100
@@ -279,10 +288,13 @@ def _validate_server_command(
     digest = hashlib.sha256(command_bytes).hexdigest()
     if digest != metadata.get("server_command_sha256"):
         blockers.append("server_command.txt hash does not match summary metadata")
-    if argv[:3] != ["python", "-m", "vllm.entrypoints.openai.api_server"]:
-        blockers.append("server_command.txt is not the expected vLLM API server command")
+    if not is_vllm_serve_argv(argv):
+        blockers.append(
+            f"server_command.txt is not a `{' '.join(VLLM_SERVE_ARGV_PREFIX)} <model>` command"
+        )
+    if vllm_served_model(argv) != metadata.get("model"):
+        blockers.append("server command model argument does not match summary metadata")
     expected = {
-        "--model": metadata.get("model"),
         "--revision": metadata.get("model_revision"),
         "--tokenizer": metadata.get("tokenizer"),
         "--tokenizer-revision": metadata.get("tokenizer_revision"),
@@ -291,29 +303,29 @@ def _validate_server_command(
     for flag, expected_value in expected.items():
         if expected_value is None and flag in {"--tokenizer", "--tokenizer-revision"}:
             continue
-        actual = _flag_value(argv, flag)
+        actual = vllm_flag_value(argv, flag)
         if actual != expected_value:
             blockers.append(f"server command {flag} does not match summary metadata")
-    command_quantization = _flag_value(argv, "--quantization") or "none"
+    command_quantization = vllm_flag_value(argv, "--quantization") or "none"
     if command_quantization != metadata.get("quantization"):
         blockers.append("server command --quantization does not match summary metadata")
+    # vLLM turns both features on by default, so an omitted flag cannot support a claim either way.
+    prefix_caching = vllm_boolean_flag(argv, "enable-prefix-caching")
+    chunked_prefill = vllm_boolean_flag(argv, "enable-chunked-prefill")
+    for name, value in [("prefix caching", prefix_caching), ("chunked prefill", chunked_prefill)]:
+        if value is None:
+            blockers.append(
+                f"server command does not state {name} explicitly; vLLM enables it by default"
+            )
     if not (path / "optimization_profile.json").exists():
         command_profile = optimization_profile_name(
-            enable_prefix_caching="--enable-prefix-caching" in argv,
-            enable_chunked_prefill="--enable-chunked-prefill" in argv,
-            speculative_model=_flag_value(argv, "--speculative-model"),
-            quantization=_flag_value(argv, "--quantization"),
+            enable_prefix_caching=bool(prefix_caching),
+            enable_chunked_prefill=bool(chunked_prefill),
+            speculative=vllm_speculative_config(argv) is not None,
+            quantization=vllm_flag_value(argv, "--quantization"),
         )
         if command_profile != metadata.get("optimization_profile"):
             blockers.append("optimization_profile does not match the recorded server command flags")
-
-
-def _flag_value(argv: list[str], flag: str) -> str | None:
-    try:
-        index = argv.index(flag)
-    except ValueError:
-        return None
-    return argv[index + 1] if index + 1 < len(argv) else None
 
 
 def _validate_optimization_profile(
@@ -356,32 +368,58 @@ def _validate_optimization_profile(
 
 def _validate_vllm_profile_flags(profile: OptimizationProfile, blockers: list[str]) -> None:
     argv = list(profile.server_command_argv)
+    if vllm_served_model(argv) != profile.model:
+        blockers.append("optimization profile model does not match the exact server command")
+    # An omitted boolean is not "off": vLLM defaults prefix caching and chunked prefill to True.
     boolean_flags = {
-        "--enable-prefix-caching": profile.prefix_cache,
-        "--enable-chunked-prefill": profile.chunked_prefill,
+        "enable-prefix-caching": profile.prefix_cache,
+        "enable-chunked-prefill": profile.chunked_prefill,
     }
-    for flag, expected in boolean_flags.items():
-        if (flag in argv) != expected:
-            blockers.append(f"optimization profile {flag} does not match the exact server command")
+    for name, expected in boolean_flags.items():
+        if vllm_boolean_flag(argv, name) != expected:
+            blockers.append(f"optimization profile --{name} does not match the exact server command")
     expected_values: dict[str, object] = {
-        "--model": profile.model,
         "--revision": profile.model_revision,
         "--tokenizer": profile.tokenizer,
         "--tokenizer-revision": profile.tokenizer_revision,
         "--dtype": profile.dtype,
         "--quantization": None if profile.quantization == "none" else profile.quantization,
-        "--speculative-model": profile.speculative_model,
-        "--num-speculative-tokens": profile.num_speculative_tokens,
         "--max-num-batched-tokens": profile.max_num_batched_tokens,
         "--max-num-seqs": profile.max_num_seqs,
         "--max-model-len": profile.max_model_len,
         "--gpu-memory-utilization": profile.gpu_memory_utilization,
     }
     for flag, expected in expected_values.items():
-        actual = _flag_value(argv, flag)
+        actual = vllm_flag_value(argv, flag)
         expected_text = None if expected is None else str(expected)
         if actual != expected_text:
             blockers.append(f"optimization profile {flag} does not match the exact server command")
+    _validate_speculative_config(argv, profile, blockers)
+
+
+def _validate_speculative_config(
+    argv: list[str],
+    profile: OptimizationProfile,
+    blockers: list[str],
+) -> None:
+    """Current vLLM takes speculative settings as one --speculative-config JSON object."""
+    config = vllm_speculative_config(argv)
+    declared = profile.speculative_model is not None or profile.num_speculative_tokens is not None
+    if config is None:
+        if "--speculative-config" in argv:
+            blockers.append("server command --speculative-config is not a JSON object")
+        elif declared:
+            blockers.append("optimization profile declares speculative decoding but the server command does not")
+        return
+    if not declared:
+        blockers.append("server command enables speculative decoding but the optimization profile does not")
+        return
+    if config.get("model") != profile.speculative_model:
+        blockers.append("optimization profile speculative model does not match --speculative-config")
+    if config.get("num_speculative_tokens") != profile.num_speculative_tokens:
+        blockers.append(
+            "optimization profile num_speculative_tokens does not match --speculative-config"
+        )
 
 
 def _validate_raw_requests(

@@ -1,19 +1,21 @@
 from __future__ import annotations
 
+from llm_accel.serving.vllm import VLLM_QUANTIZATION_METHODS
+
 
 BACKEND_CAPABILITIES: dict[str, dict[str, object]] = {
     "mock": {
         "streaming": True,
         "gpu_memory": False,
-        "quantization_modes": ["none", "int8", "int4"],
-        "notes": "Deterministic local backend for smoke tests; metrics are synthetic.",
+        "quantization_modes": ["none"],
+        "notes": "Deterministic local backend for smoke tests; it never quantizes and its metrics are synthetic.",
     },
     "vllm": {
         "streaming": True,
         "gpu_memory": True,
-        "quantization_modes": ["none", "awq", "gptq", "fp8", "int8", "int4"],
+        "quantization_modes": ["none", *VLLM_QUANTIZATION_METHODS],
         "optimization_features": ["paged_attention", "continuous_batching", "prefix_caching", "chunked_prefill", "speculative_decoding"],
-        "notes": "Capability depends on installed vLLM version, model, and hardware.",
+        "notes": "Quantization names come from vLLM QuantizationMethods (v0.29.0); support also depends on the installed vLLM version, model checkpoint, and hardware.",
     },
     "sglang": {
         "streaming": True,
@@ -25,9 +27,9 @@ BACKEND_CAPABILITIES: dict[str, dict[str, object]] = {
     "tensorrt-llm": {
         "streaming": True,
         "gpu_memory": True,
-        "quantization_modes": ["none", "fp8", "int8", "int4"],
+        "quantization_modes": ["unknown"],
         "optimization_features": ["inflight_batching", "paged_kv_cache", "kv_cache_reuse", "speculative_decoding"],
-        "notes": "TensorRT-LLM capabilities depend on built engine, TensorRT-LLM version, GPU generation, and serving stack.",
+        "notes": "TensorRT-LLM selects quantization when the engine is built, not through a serving flag, so the served mode cannot be derived from the endpoint.",
     },
     "tgi": {
         "streaming": True,

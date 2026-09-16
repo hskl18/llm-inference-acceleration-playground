@@ -279,12 +279,15 @@ def main() -> int:
             "llm_accel.cli",
             "quantization",
             "compare",
-            "--base-url",
-            "mock://local",
             "--model",
             "mock-model",
-            "--modes",
-            "none,int8,fp8",
+            "--backend",
+            "openai-compatible",
+            # Each mode needs its own endpoint; the mock scheme stands in for two servers.
+            "--mode",
+            "none=mock://quant-none",
+            "--mode",
+            "fp8=mock://quant-fp8",
             "--request-count",
             "1",
             "--output-dir",
@@ -292,7 +295,23 @@ def main() -> int:
         ]
     )
     require_file(QUANT_OUT / "quantization_comparison.json")
-    run([sys.executable, "-m", "llm_accel.cli", "speculative", "run", "--lookahead", "4", "--output-dir", str(SPEC_OUT)])
+    run(
+        [
+            sys.executable,
+            "-m",
+            "llm_accel.cli",
+            "speculative",
+            "run",
+            "--lookahead",
+            "4",
+            "--acceptance-rate",
+            "0.7",
+            "--draft-cost-ratio",
+            "0.2",
+            "--output-dir",
+            str(SPEC_OUT),
+        ]
+    )
     require_file(SPEC_OUT / "baseline_comparison.json")
     run([sys.executable, "-m", "llm_accel.cli", "vllm", "command", "--model", "mock-model", "--dtype", "auto"])
     run_expect(

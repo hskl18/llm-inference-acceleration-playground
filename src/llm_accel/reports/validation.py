@@ -209,7 +209,7 @@ def _read_mapping_jsonl(path: Path, errors: list[str]) -> list[dict[str, object]
 
 def _validate_quantization_comparison(path: Path, errors: list[str], warnings: list[str]) -> None:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    _require_keys(path.name, payload, ["model", "backend", "modes", "supported_modes", "runs", "warnings", "notes"], errors)
+    _require_keys(path.name, payload, ["model", "backend", "baseline_mode", "modes", "supported_modes", "runs", "warnings", "notes"], errors)
     for key in ["modes", "supported_modes", "runs", "warnings", "notes"]:
         _require_list(path.name, payload.get(key), key, errors)
     if isinstance(payload.get("runs"), list) and isinstance(payload.get("modes"), list) and len(payload["runs"]) != len(payload["modes"]):
@@ -318,7 +318,7 @@ def _validate_acceptance_curve(path: Path, errors: list[str], warnings: list[str
 
 def _validate_baseline_comparison(path: Path, errors: list[str], warnings: list[str]) -> None:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    _require_keys(path.name, payload, ["baseline", "speculative", "estimated_speedup", "saved_steps", "relative_step_reduction", "interpretation"], errors)
+    _require_keys(path.name, payload, ["baseline", "speculative", "estimated_speedup", "relative_latency_reduction", "interpretation"], errors)
     _require_mapping(path.name, payload.get("baseline"), "baseline", errors)
     _require_mapping(path.name, payload.get("speculative"), "speculative", errors)
 

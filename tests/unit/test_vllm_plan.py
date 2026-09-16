@@ -1,3 +1,4 @@
+import json
 import shlex
 
 import pytest
@@ -27,7 +28,9 @@ def test_create_vllm_benchmark_plan_writes_runbook(tmp_path) -> None:
     assert "run_throughput_benchmark" in step_names
     assert "validate_throughput_run" in step_names
     assert "results/runs/vllm-throughput/throughput_summary.json" in plan["required_artifacts"]
+    assert plan["server_command"]["argv"][:3] == ["vllm", "serve", "test-model"]
     assert "--enable-prefix-caching" in plan["server_command"]["argv"]
+    assert "--no-enable-chunked-prefill" in plan["server_command"]["argv"]
     assert REVISION in plan["server_command"]["argv"]
     assert plan["tokenizer"] == "test-tokenizer"
     assert plan["tokenizer_revision"] == "b" * 40
@@ -57,6 +60,49 @@ def test_create_vllm_benchmark_plan_writes_runbook(tmp_path) -> None:
     assert (tmp_path / "vllm_benchmark_plan.json").exists()
     assert (tmp_path / "vllm_benchmark_plan.md").exists()
     assert (tmp_path / "server_command.txt").exists()
+
+
+def test_plan_speculative_settings_use_speculative_config(tmp_path) -> None:
+    plan = create_vllm_benchmark_plan(
+        model="test-model",
+        base_url="http://localhost:8000/v1",
+        output_dir=tmp_path,
+        revision=REVISION,
+        hardware_label="NVIDIA A100 80GB",
+        dtype="float16",
+        speculative_model="draft-model",
+        num_speculative_tokens=5,
+    )
+
+    argv = plan["server_command"]["argv"]
+    assert "--speculative-model" not in argv
+    assert json.loads(argv[argv.index("--speculative-config") + 1]) == {
+        "method": "draft_model",
+        "model": "draft-model",
+        "num_speculative_tokens": 5,
+    }
+    validation_command = next(
+        step["command"] for step in plan["steps"] if step["name"] == "validate_environment"
+    )
+    assert "--speculative-method draft_model" in validation_command
+    assert "--num-speculative-tokens 5" in validation_command
+
+
+def test_plan_never_writes_a_remote_endpoint_in_clear_text(tmp_path) -> None:
+    plan = create_vllm_benchmark_plan(
+        model="test-model",
+        base_url="https://vllm.internal.example/v1",
+        output_dir=tmp_path,
+        revision=REVISION,
+        hardware_label="NVIDIA A100 80GB",
+        dtype="float16",
+    )
+
+    assert plan["base_url"] == "redacted"
+    for step in plan["steps"]:
+        assert "vllm.internal.example" not in step["command"]
+    for artifact in ["vllm_benchmark_plan.json", "vllm_benchmark_plan.md", "server_command.txt"]:
+        assert "vllm.internal.example" not in (tmp_path / artifact).read_text(encoding="utf-8")
 
 
 def test_vllm_plan_requires_revision_for_distinct_tokenizer(tmp_path) -> None:

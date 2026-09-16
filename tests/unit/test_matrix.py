@@ -18,6 +18,10 @@ from llm_accel.reports.ranking_audit import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
+BASELINE_COMMAND = (
+    "mock-server --model mock-model --profile baseline "
+    "--no-enable-prefix-caching --no-enable-chunked-prefill\n"
+)
 
 
 def test_mock_matrix_persists_randomized_plan_and_resumes(tmp_path: Path) -> None:
@@ -293,7 +297,7 @@ def test_fresh_matrix_replaces_stale_profile_command_artifacts(tmp_path: Path) -
 
     run_matrix(ROOT / "configs" / "optimization_matrix_mock.yaml", output_dir)
 
-    expected = "mock-server --model mock-model --profile baseline\n"
+    expected = BASELINE_COMMAND
     assert baseline_command.read_text(encoding="utf-8") == expected
     first_run_command = output_dir / "baseline" / "repeat-01" / "c2-in32-out8" / "server_command.txt"
     assert first_run_command.read_text(encoding="utf-8") == expected
@@ -312,9 +316,7 @@ def test_fresh_matrix_replaces_leaf_command_symlink_without_touching_target(tmp_
 
     assert victim.read_text(encoding="utf-8") == "preserve me\n"
     assert not baseline_command.is_symlink()
-    assert baseline_command.read_text(encoding="utf-8") == (
-        "mock-server --model mock-model --profile baseline\n"
-    )
+    assert baseline_command.read_text(encoding="utf-8") == BASELINE_COMMAND
 
 
 def test_fresh_matrix_replaces_leaf_profile_symlink_without_touching_target(
@@ -703,7 +705,7 @@ def test_ranking_saturation_ceiling_cannot_be_disabled_by_configuration() -> Non
 def test_matrix_rejects_null_profile_quantization(tmp_path: Path) -> None:
     source = (ROOT / "configs" / "optimization_matrix_mock.yaml").read_text(encoding="utf-8")
     config_path = tmp_path / "null-quantization.yaml"
-    config_path.write_text(source.replace("quantization: int8", "quantization: null"), encoding="utf-8")
+    config_path.write_text(source.replace("quantization: fp8", "quantization: null"), encoding="utf-8")
 
     with pytest.raises(ValueError, match="profiles.quantized.quantization must be a non-empty string"):
         run_matrix(config_path, tmp_path / "output")

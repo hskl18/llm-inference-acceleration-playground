@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+from llm_accel.metrics.execution_identity import displayed_base_url
 from llm_accel.serving.capabilities import get_capability
-from llm_accel.serving.versions import detect_backend_version
+from llm_accel.serving.versions import resolve_backend_version
 
 
 def backend_profile(backend: str, *, base_url: str = "mock://local") -> dict[str, object]:
     capability = get_capability(backend)
+    backend_version, backend_version_source = resolve_backend_version(backend, base_url)
     return {
         "backend": backend,
-        "backend_version": detect_backend_version(backend),
-        "base_url": base_url if base_url.startswith(("mock://", "http://localhost", "http://127.0.0.1")) else "redacted",
+        "backend_version": backend_version,
+        "backend_version_source": backend_version_source,
+        "base_url": displayed_base_url(base_url),
         "client": "OpenAICompatibleClient",
         "adapter_status": "implemented" if backend in {"mock", "openai-compatible", "vllm", "sglang", "tensorrt-llm", "tgi"} else "unknown",
         "capability": capability,

@@ -4,6 +4,7 @@ import hashlib
 import shlex
 from pathlib import Path
 
+from llm_accel.metrics.execution_identity import displayed_base_url
 from llm_accel.metrics.io import write_json, write_text_atomic
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.serving.vllm import build_vllm_command, optimization_profile_name
@@ -29,6 +30,7 @@ def create_vllm_benchmark_plan(
     enable_chunked_prefill: bool = False,
     max_num_batched_tokens: int | None = None,
     max_num_seqs: int | None = None,
+    speculative_method: str | None = None,
     speculative_model: str | None = None,
     num_speculative_tokens: int | None = None,
 ) -> dict[str, object]:
@@ -47,6 +49,7 @@ def create_vllm_benchmark_plan(
         enable_chunked_prefill=enable_chunked_prefill,
         max_num_batched_tokens=max_num_batched_tokens,
         max_num_seqs=max_num_seqs,
+        speculative_method=speculative_method,
         speculative_model=speculative_model,
         num_speculative_tokens=num_speculative_tokens,
     )
@@ -62,12 +65,15 @@ def create_vllm_benchmark_plan(
     optimization_profile = optimization_profile_name(
         enable_prefix_caching=enable_prefix_caching,
         enable_chunked_prefill=enable_chunked_prefill,
-        speculative_model=speculative_model,
+        speculative=command.speculative_config() is not None,
         quantization=quantization,
     )
+    # Written step commands must never carry a private endpoint, so they use the same
+    # redaction as every other artifact and the operator substitutes the real URL.
+    plan_base_url = displayed_base_url(base_url)
     validation_command = _validation_command(
         model=model,
-        base_url=base_url,
+        base_url=plan_base_url,
         revision=revision,
         tokenizer=command.tokenizer,
         tokenizer_revision=command.tokenizer_revision,
@@ -79,12 +85,13 @@ def create_vllm_benchmark_plan(
         enable_chunked_prefill=enable_chunked_prefill,
         max_num_batched_tokens=max_num_batched_tokens,
         max_num_seqs=max_num_seqs,
+        speculative_method=command.speculative_method,
         speculative_model=speculative_model,
         num_speculative_tokens=num_speculative_tokens,
     )
     latency_command = _benchmark_command(
         kind="latency",
-        base_url=base_url,
+        base_url=plan_base_url,
         model=model,
         revision=revision,
         tokenizer=command.tokenizer,
@@ -100,7 +107,7 @@ def create_vllm_benchmark_plan(
     )
     throughput_command = _benchmark_command(
         kind="throughput",
-        base_url=base_url,
+        base_url=plan_base_url,
         model=model,
         revision=revision,
         tokenizer=command.tokenizer,
@@ -119,7 +126,7 @@ def create_vllm_benchmark_plan(
         "model_revision": revision_value,
         "tokenizer": command.tokenizer,
         "tokenizer_revision": command.tokenizer_revision,
-        "base_url": base_url if base_url.startswith(("http://localhost", "http://127.0.0.1")) else "redacted",
+        "base_url": plan_base_url,
         "config_path": config_path,
         "server_command": command.to_dict(),
         "server_command_sha256": server_command_sha256,
@@ -152,7 +159,7 @@ def create_vllm_benchmark_plan(
                         "eval",
                         "task",
                         "--base-url",
-                        base_url,
+                        plan_base_url,
                         "--backend",
                         "vllm",
                         "--model",
@@ -191,6 +198,7 @@ def create_vllm_benchmark_plan(
             "Do not publish performance claims if vllm validate reports blockers.",
             "Do not compare runs unless model, backend, dtype, quantization, hardware, and workload metadata are compatible.",
             "Report failed request counts and timeout counts with benchmark results.",
+            "A non-local endpoint URL is written as 'redacted'; substitute the real endpoint when running each step.",
         ],
     }
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -287,6 +295,7 @@ def _validation_command(
     enable_chunked_prefill: bool,
     max_num_batched_tokens: int | None,
     max_num_seqs: int | None,
+    speculative_method: str | None,
     speculative_model: str | None,
     num_speculative_tokens: int | None,
 ) -> str:
@@ -311,16 +320,15 @@ def _validation_command(
         ("--gpu-memory-utilization", gpu_memory_utilization),
         ("--max-num-batched-tokens", max_num_batched_tokens),
         ("--max-num-seqs", max_num_seqs),
+        ("--speculative-method", speculative_method),
         ("--speculative-model", speculative_model),
         ("--num-speculative-tokens", num_speculative_tokens),
     ]
     for flag, value in optional_values:
         if value is not None:
             argv.extend([flag, str(value)])
-    if enable_prefix_caching:
-        argv.append("--enable-prefix-caching")
-    if enable_chunked_prefill:
-        argv.append("--enable-chunked-prefill")
+    argv.append("--enable-prefix-caching" if enable_prefix_caching else "--no-enable-prefix-caching")
+    argv.append("--enable-chunked-prefill" if enable_chunked_prefill else "--no-enable-chunked-prefill")
     argv.extend(["--output-dir", "results/runs/vllm-validation", "--smoke"])
     return shlex.join(argv)
 

@@ -23,15 +23,16 @@ def _profile(
     prefix_cache: bool = False,
     quantization: str = "none",
 ):
-    flags = " --enable-prefix-caching" if prefix_cache else ""
+    flags = " --enable-prefix-caching" if prefix_cache else " --no-enable-prefix-caching"
+    flags += " --no-enable-chunked-prefill"
     if quantization != "none":
         flags += f" --quantization {quantization}"
     return create_optimization_profile(
         name=name,
         backend=backend,
-        backend_version="builtin" if backend == "mock" else "0.10.0",
+        backend_version="builtin" if backend == "mock" else "0.29.0",
         server_command=(
-            "python -m vllm.entrypoints.openai.api_server --model model "
+            "vllm serve model "
             f"--revision {REVISION} --dtype float16{flags}\n"
         ),
         model="model",

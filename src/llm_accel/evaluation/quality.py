@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from llm_accel.evaluation.io import write_mapping_jsonl
+from llm_accel.metrics.execution_identity import displayed_base_url
 from llm_accel.metrics.io import write_json, write_text_atomic
 from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.metrics.schemas import SCHEMA_VERSION
@@ -90,7 +91,7 @@ def evaluate_prompts(
         "schema_version": SCHEMA_VERSION,
         "model": model,
         "backend": "mock" if base_url.startswith("mock://") else backend,
-        "base_url": base_url if base_url.startswith(("mock://", "http://localhost", "http://127.0.0.1")) else "redacted",
+        "base_url": displayed_base_url(base_url),
         "prompt_count": len(prompts),
         "prompt_set_sha256": _prompt_set_sha256(prompts),
         "passed": passed,
