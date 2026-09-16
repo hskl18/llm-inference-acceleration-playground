@@ -108,7 +108,7 @@ A benchmark client usually runs on a different machine than the server, so the v
 Blockers are raised when the endpoint is not healthy, when `/version` does not identify the serving process, or when a requested `--smoke` completion fails.
 
 A locally importable `vllm` package and a local `nvidia-smi` describe the client host, not the endpoint, so they are reported as informational warnings.
-Pass `--same-host` when the client and the server really are the same machine; then both become blockers again.
+Pass `llm-accel vllm validate --same-host` when the client and the server really are the same machine; then both become blockers again.
 
 Outputs:
 

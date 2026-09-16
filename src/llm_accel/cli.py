@@ -212,6 +212,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_vllm_optimization_args(vllm_validate)
     vllm_validate.add_argument("--timeout-seconds", type=float, default=5.0)
     vllm_validate.add_argument("--smoke", action="store_true")
+    vllm_validate.add_argument(
+        "--same-host",
+        action="store_true",
+        help="Declare that this client is the serving host, making local vLLM and GPU checks blockers",
+    )
     vllm_validate.add_argument("--api-key-env", default=DEFAULT_API_KEY_ENV)
     vllm_validate.add_argument("--output-dir", default="results/runs/vllm-validation")
     vllm_validate.set_defaults(func=cmd_vllm_validate)
@@ -606,6 +611,7 @@ def cmd_vllm_validate(args: argparse.Namespace) -> int:
         num_speculative_tokens=args.num_speculative_tokens,
         timeout_seconds=args.timeout_seconds,
         smoke=args.smoke,
+        same_host=args.same_host,
         api_key_env=args.api_key_env,
     )
     print(

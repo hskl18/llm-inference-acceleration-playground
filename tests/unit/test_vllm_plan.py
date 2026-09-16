@@ -3,6 +3,7 @@ import shlex
 
 import pytest
 
+from llm_accel.cli import build_parser
 from llm_accel.serving.vllm_plan import create_vllm_benchmark_plan
 
 
@@ -86,6 +87,28 @@ def test_plan_speculative_settings_use_speculative_config(tmp_path) -> None:
     )
     assert "--speculative-method draft_model" in validation_command
     assert "--num-speculative-tokens 5" in validation_command
+
+
+def test_every_plan_step_parses_with_the_cli(tmp_path) -> None:
+    plan = create_vllm_benchmark_plan(
+        model="test-model",
+        base_url="http://localhost:8000/v1",
+        output_dir=tmp_path,
+        revision=REVISION,
+        hardware_label="NVIDIA A100 80GB",
+        dtype="float16",
+        enable_prefix_caching=True,
+        speculative_model="draft-model",
+        num_speculative_tokens=5,
+    )
+    parser = build_parser()
+
+    for step in plan["steps"]:
+        argv = shlex.split(step["command"])
+        if argv[0] != "llm-accel":
+            continue
+        # A runbook step that the CLI cannot parse is a broken runbook.
+        assert parser.parse_args(argv[1:]) is not None
 
 
 def test_plan_never_writes_a_remote_endpoint_in_clear_text(tmp_path) -> None:
