@@ -2,6 +2,10 @@
 
 Benchmarks should record workload shape, backend, backend version when available, model, dtype, quantization mode, request count, warmup count, software environment, hardware label, GPU name when available, generated metrics, and warnings about missing measurements.
 
+`backend_version` for a vLLM endpoint is read from the server's `GET /version`, because the client is usually not the machine that serves the requests.
+`backend_version_source` records where it came from: `server_version_endpoint`, `client_package`, `mock`, or `unavailable`.
+A run whose version came from the client's installed package carries a warning, since it only describes the endpoint on a same-host run.
+
 The first implementation supports deterministic mock benchmarks for smoke testing.
 Mock results validate the workflow and schemas; they are not hardware performance claims.
 
@@ -130,6 +134,8 @@ Only the variable name is used and recorded, never the value, and requests are s
 
 Every matrix cell writes `optimization_profile.json` using schema `0.2`.
 The profile records the backend and exact version, exact server command text and parsed arguments, command SHA-256, target model and immutable revision, tokenizer and immutable revision, dtype, quantization, prefix-cache state, chunked-prefill state, speculative model settings, batching limits, model limits, GPU-memory limit, and environment fingerprint.
+
+For a vLLM profile, the audit matches those fields against the exact command: the model is the positional argument of `vllm serve`, prefix caching and chunked prefill must be stated explicitly because vLLM enables both by default, and the speculative model and token count are matched against the `--speculative-config` JSON object.
 
 The semantic fingerprint covers the complete profile except its display name.
 The treatment fingerprint covers settings that intentionally differ between experiment arms.

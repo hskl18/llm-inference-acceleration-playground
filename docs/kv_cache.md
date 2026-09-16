@@ -45,3 +45,5 @@ Preset values are convenience defaults for estimation. Check the exact model con
 ## Long-Context Example
 
 Long context and concurrency multiply directly. Doubling either `--seq-len` or `--batch-size` doubles the KV cache estimate. This is why a model that fits at short context can fail under a long-context concurrent workload even when weights fit in memory.
+
+The estimator sizes the cache; the attention kernel decides how fast it is read and how much activation memory prefill needs alongside it. See [the FlashAttention method note](methods/flashattention.md) for how that interacts with TTFT and sustainable concurrency.
