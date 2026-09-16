@@ -27,6 +27,10 @@ class RequestMetrics:
     dispatch_offset_ms: float = 0.0
     queue_delay_ms: float = 0.0
     end_to_end_latency_ms: float = 0.0
+    # Gaps between consecutive content-bearing stream chunks. They equal per-token latency only
+    # when the server emits one token per chunk, so they are kept separate from tpot_ms, which is
+    # derived from the run's authoritative output token count.
+    inter_token_latencies_ms: tuple[float, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -78,6 +82,7 @@ class RunMetadata:
     client_workers: int = 1
     queue_delay_warning_ms: float = 10.0
     ignore_eos: bool = False
+    slo: dict[str, float] | None = None
     client_configuration: dict[str, Any] | None = None
     token_count_method: str = "unknown"
     schema_version: str = SCHEMA_VERSION

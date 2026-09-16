@@ -65,6 +65,9 @@ Each line contains one request record.
 - `queue_delay_ms`
 - `end_to_end_latency_ms`
 
+`raw_requests.jsonl` rows additionally carry `inter_token_latencies_ms`, the gaps between consecutive content-bearing stream chunks for that request.
+The CSV is the flat scalar view and omits that variable-length field.
+
 Timeouts and endpoint errors are represented as rows with `completed: false`, zero output tokens, and a populated `error` field.
 The request offsets anchor each row to the measured window so wall-clock throughput can be reconstructed from raw evidence rather than trusted from a derived summary.
 For open-loop runs, measured elapsed time begins at the first scheduled arrival rather than the first delayed dispatch.
@@ -107,6 +110,22 @@ All runs record `metadata.request_schedule`, `metadata.request_rate_rps`, `metad
 Synthetic runs fingerprint the measured prompt sequence so repeated-run comparability does not depend on missing values.
 
 The metrics block includes `queue_delay_ms` and `end_to_end_latency_ms` distributions alongside endpoint-call latency.
+It also includes `inter_token_latency_ms` with `sample_count`, `mean`, `p50`, `p95`, `p99`, and `max` pooled over completed requests, and `client_load` with the load generator's `cpu_seconds`, `cpu_cores_used`, and whether that figure covers every client process.
+`metrics.goodput` is `null` unless the run declared an SLO; otherwise it records the declared `slo`, `good_request_count`, `attainment`, `good_requests_per_second`, and `good_output_tokens_per_second`, and the declared thresholds also appear as `metadata.slo`.
+
+## `repeats_summary.json`
+
+`--repeats N` writes each repetition to `repeat-01` through `repeat-NN` and adds:
+
+```text
+manifest.json
+repeats_summary.json
+repeats_summary.md
+```
+
+`repeats_summary.json` records `repeats`, `repeat_dirs`, the first repetition's `metadata`, the total `failed_request_count`, the union of per-run `warnings`, and a `metrics` map.
+Each entry in `metrics` is keyed by a dotted metric path such as `throughput.output_tokens_per_second` and holds `count`, `mean`, `stddev`, `sample_stddev`, `min`, `max`, `ci95_half_width`, `ci95_low`, and `ci95_high`.
+The interval is a two-sided 95% Student t interval for the mean of the repetitions.
 
 Runs also record `metadata.shared_prefix_tokens_estimate` and `metadata.shared_prefix_fingerprint`.
 These fields help identify workloads designed for prefix-cache benchmarking without writing shared prompt text to artifacts.
@@ -239,7 +258,7 @@ It also includes structured `blockers`, explicit invariant `strata`, a declared 
 Reports must treat relative throughput as an inspection aid rather than a ranking when runs are too small, have failures, have fewer than three valid repetitions per profile, lack schema `0.2` evidence, or differ in model, tokenizer, prompt, schedule, client, quality-gate, environment, request-shape, or code invariants.
 Quantization, caching, prefill, speculative decoding, and batching settings are treatment dimensions rather than automatic incompatibilities.
 
-Repeated-run comparisons include `profile_aggregates` with repetition count plus mean, population standard deviation, minimum, and maximum throughput and p95 latency for each optimization profile.
+Repeated-run comparisons include `profile_aggregates` with repetition count plus mean, standard deviation, minimum, maximum, and a 95% confidence interval for throughput and p95 latency for each optimization profile.
 Relative aggregate values use the declared baseline profile rather than the first input path.
 
 `report ranking-audit` returns `publishable_performance_ranking`, structured blockers, warnings, and a compact evidence summary.

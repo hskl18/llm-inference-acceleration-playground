@@ -34,9 +34,12 @@ def resolve_backend_version(
     """
     if backend == "mock" or (base_url or "").startswith("mock://"):
         return f"llm-accel-mock/{__version__}", "mock"
-    if backend == "vllm" and base_url:
+    # vLLM serves GET /version at the server root; Ollama serves the same payload at /api/version.
+    version_paths = {"vllm": "/version", "ollama": "/api/version"}
+    if backend in version_paths and base_url:
         version = fetch_server_version(
             base_url,
+            path=version_paths[backend],
             timeout_seconds=timeout_seconds,
             api_key_env=api_key_env,
         )

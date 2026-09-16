@@ -857,3 +857,54 @@ def test_sweep_config_api_key_env_reaches_the_endpoint(tmp_path, monkeypatch) ->
     assert {headers.get("Authorization") for headers in _NullRoleChunkHandler.headers_seen} == {
         "Bearer sweep-secret"
     }
+
+
+def test_streaming_records_one_inter_token_gap_per_content_chunk_boundary() -> None:
+    server, base_url = _start_null_role_server()
+    try:
+        client = OpenAICompatibleClient(base_url=base_url, model="mock")
+        result = client.complete("hello", max_tokens=10, stream=True)
+    finally:
+        server.shutdown()
+
+    # The null-content role chunk starts no clock, so ten content chunks leave nine gaps.
+    assert len(result.inter_token_latencies_ms) == len(SUB_WORD_CHUNKS) - 1
+    assert all(gap >= 0.0 for gap in result.inter_token_latencies_ms)
+    # The 50 ms server delay lands before the first content chunk, so it is TTFT, not a gap.
+    assert sum(result.inter_token_latencies_ms) < result.ttft_ms
+
+
+def test_non_streaming_calls_record_no_inter_token_gaps() -> None:
+    server, base_url = _start_null_role_server()
+    try:
+        client = OpenAICompatibleClient(base_url=base_url, model="mock")
+        result = client.complete("hello", max_tokens=10, stream=False)
+    finally:
+        server.shutdown()
+
+    assert result.inter_token_latencies_ms == ()
+
+
+def test_inter_token_latency_distribution_reaches_the_run_summary(tmp_path) -> None:
+    server, base_url = _start_null_role_server()
+    try:
+        summary = run_latency_benchmark(
+            base_url=base_url,
+            model="mock",
+            backend="openai-compatible",
+            concurrency=1,
+            input_tokens=8,
+            output_tokens=10,
+            output_dir=tmp_path / "itl",
+            request_count=2,
+        )
+    finally:
+        server.shutdown()
+
+    itl = summary["metrics"]["inter_token_latency_ms"]
+    assert itl["sample_count"] == 2 * (len(SUB_WORD_CHUNKS) - 1)
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "itl" / "raw_requests.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert all(len(row["inter_token_latencies_ms"]) == len(SUB_WORD_CHUNKS) - 1 for row in rows)

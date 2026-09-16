@@ -1,0 +1,440 @@
+{
+  "comparisons": [
+    {
+      "agreement": {
+        "decode_ms_per_token_relative_difference": 0.027945966756713556,
+        "input_tokens_match_native_chat": true,
+        "output_tokens_match_native_chat": true,
+        "total_latency_relative_difference": -0.26101285012270337
+      },
+      "client": {
+        "cache_state": "warm",
+        "input_tokens": 374,
+        "inter_token_latency_p50_ms": 9.302499995101243,
+        "inter_token_latency_sample_count": 63,
+        "ms_per_output_token": 9.466868380845954,
+        "output_tokens": 64,
+        "token_count_method": "server_usage",
+        "total_latency_ms": 641.020207956899,
+        "tpot_ms": 9.466868380845954,
+        "ttft_ms": 44.607499963603914
+      },
+      "native_chat": {
+        "cache_state": "cold",
+        "client_wall_ms": 874.6467499877326,
+        "done_reason": "length",
+        "eval_count": 64,
+        "eval_duration_ms": 589.408,
+        "load_duration_ms": 2.735041,
+        "ms_per_output_token": 9.2095,
+        "prompt_eval_cached_count": 30,
+        "prompt_eval_count": 374,
+        "prompt_eval_duration_ms": 267.285,
+        "route": "/api/chat",
+        "server_prefill_ms": 270.02004100000005,
+        "total_duration_ms": 867.430791
+      },
+      "native_generate": {
+        "cache_state": "warm",
+        "client_wall_ms": 639.8492919979617,
+        "done_reason": "length",
+        "eval_count": 64,
+        "eval_duration_ms": 592.608,
+        "load_duration_ms": 1.293708,
+        "ms_per_output_token": 9.2595,
+        "prompt_eval_cached_count": 356,
+        "prompt_eval_count": 374,
+        "prompt_eval_duration_ms": 39.572,
+        "route": "/api/generate",
+        "server_prefill_ms": 40.865708000000005,
+        "total_duration_ms": 636.101583
+      },
+      "prompt_sha256_prefix": "88928e7cb860271b"
+    },
+    {
+      "agreement": {
+        "decode_ms_per_token_relative_difference": 0.008076755819824701,
+        "input_tokens_match_native_chat": true,
+        "output_tokens_match_native_chat": true,
+        "total_latency_relative_difference": -0.006904261111168337
+      },
+      "client": {
+        "cache_state": "warm",
+        "input_tokens": 374,
+        "inter_token_latency_p50_ms": 9.289959038142115,
+        "inter_token_latency_sample_count": 63,
+        "ms_per_output_token": 9.43156612745028,
+        "output_tokens": 64,
+        "token_count_method": "server_usage",
+        "total_latency_ms": 638.0777080194093,
+        "tpot_ms": 9.43156612745028,
+        "ttft_ms": 43.88904199004173
+      },
+      "native_chat": {
+        "cache_state": "cold",
+        "client_wall_ms": 644.5246249786578,
+        "done_reason": "length",
+        "eval_count": 64,
+        "eval_duration_ms": 598.784,
+        "load_duration_ms": 1.342708,
+        "ms_per_output_token": 9.356,
+        "prompt_eval_cached_count": 355,
+        "prompt_eval_count": 374,
+        "prompt_eval_duration_ms": 39.572,
+        "route": "/api/chat",
+        "server_prefill_ms": 40.914708000000005,
+        "total_duration_ms": 642.513791
+      },
+      "native_generate": {
+        "cache_state": "warm",
+        "client_wall_ms": 642.1947079943493,
+        "done_reason": "length",
+        "eval_count": 64,
+        "eval_duration_ms": 591.509,
+        "load_duration_ms": 1.06225,
+        "ms_per_output_token": 9.242328125,
+        "prompt_eval_cached_count": 355,
+        "prompt_eval_count": 374,
+        "prompt_eval_duration_ms": 43.101,
+        "route": "/api/generate",
+        "server_prefill_ms": 44.16325,
+        "total_duration_ms": 637.546
+      },
+      "prompt_sha256_prefix": "f0ac463ea4732f95"
+    },
+    {
+      "agreement": {
+        "decode_ms_per_token_relative_difference": 0.048401521498954145,
+        "input_tokens_match_native_chat": true,
+        "output_tokens_match_native_chat": true,
+        "total_latency_relative_difference": 0.031870466643013344
+      },
+      "client": {
+        "cache_state": "warm",
+        "input_tokens": 372,
+        "inter_token_latency_p50_ms": 9.39370901323855,
+        "inter_token_latency_sample_count": 63,
+        "ms_per_output_token": 9.777294301856605,
+        "output_tokens": 64,
+        "token_count_method": "server_usage",
+        "total_latency_ms": 660.6812499812804,
+        "tpot_ms": 9.777294301856605,
+        "ttft_ms": 44.71170896431431
+      },
+      "native_chat": {
+        "cache_state": "cold",
+        "client_wall_ms": 641.9469590182416,
+        "done_reason": "length",
+        "eval_count": 64,
+        "eval_duration_ms": 596.858,
+        "load_duration_ms": 1.3285,
+        "ms_per_output_token": 9.32590625,
+        "prompt_eval_cached_count": 355,
+        "prompt_eval_count": 372,
+        "prompt_eval_duration_ms": 39.28,
+        "route": "/api/chat",
+        "server_prefill_ms": 40.6085,
+        "total_duration_ms": 640.275375
+      },
+      "native_generate": {
+        "cache_state": "warm",
+        "client_wall_ms": 653.7687920499593,
+        "done_reason": "length",
+        "eval_count": 64,
+        "eval_duration_ms": 606.238,
+        "load_duration_ms": 1.198208,
+        "ms_per_output_token": 9.47246875,
+        "prompt_eval_cached_count": 355,
+        "prompt_eval_count": 372,
+        "prompt_eval_duration_ms": 39.235,
+        "route": "/api/generate",
+        "server_prefill_ms": 40.433208,
+        "total_duration_ms": 648.795833
+      },
+      "prompt_sha256_prefix": "ebcccdbfd20b99bc"
+    },
+    {
+      "agreement": {
+        "decode_ms_per_token_relative_difference": 0.05519684335818435,
+        "input_tokens_match_native_chat": true,
+        "output_tokens_match_native_chat": true,
+        "total_latency_relative_difference": 0.036788847882989875
+      },
+      "client": {
+        "cache_state": "warm",
+        "input_tokens": 371,
+        "inter_token_latency_p50_ms": 9.328916028607637,
+        "inter_token_latency_sample_count": 63,
+        "ms_per_output_token": 9.807972221760936,
+        "output_tokens": 64,
+        "token_count_method": "server_usage",
+        "total_latency_ms": 662.7067920053378,
+        "tpot_ms": 9.807972221760936,
+        "ttft_ms": 44.804542034398764
+      },
+      "native_chat": {
+        "cache_state": "cold",
+        "client_wall_ms": 640.8372910227627,
+        "done_reason": "length",
+        "eval_count": 64,
+        "eval_duration_ms": 594.875,
+        "load_duration_ms": 1.338792,
+        "ms_per_output_token": 9.294921875,
+        "prompt_eval_cached_count": 355,
+        "prompt_eval_count": 371,
+        "prompt_eval_duration_ms": 39.002,
+        "route": "/api/chat",
+        "server_prefill_ms": 40.340792,
+        "total_duration_ms": 639.191667
+      },
+      "native_generate": {
+        "cache_state": "warm",
+        "client_wall_ms": 635.7487499481067,
+        "done_reason": "length",
+        "eval_count": 64,
+        "eval_duration_ms": 586.786,
+        "load_duration_ms": 1.260625,
+        "ms_per_output_token": 9.16853125,
+        "prompt_eval_cached_count": 355,
+        "prompt_eval_count": 371,
+        "prompt_eval_duration_ms": 39.259,
+        "route": "/api/generate",
+        "server_prefill_ms": 40.519625,
+        "total_duration_ms": 629.655542
+      },
+      "prompt_sha256_prefix": "a4b9e0c23f14d825"
+    },
+    {
+      "agreement": {
+        "decode_ms_per_token_relative_difference": 0.030819320233207513,
+        "input_tokens_match_native_chat": true,
+        "output_tokens_match_native_chat": true,
+        "total_latency_relative_difference": 0.014721206786080179
+      },
+      "client": {
+        "cache_state": "warm",
+        "input_tokens": 371,
+        "inter_token_latency_p50_ms": 9.355625021271408,
+        "inter_token_latency_sample_count": 63,
+        "ms_per_output_token": 9.626306221997808,
+        "output_tokens": 64,
+        "token_count_method": "server_usage",
+        "total_latency_ms": 650.5022920318879,
+        "tpot_ms": 9.626306221997808,
+        "ttft_ms": 44.04500004602596
+      },
+      "native_chat": {
+        "cache_state": "cold",
+        "client_wall_ms": 642.7151669631712,
+        "done_reason": "length",
+        "eval_count": 64,
+        "eval_duration_ms": 597.664,
+        "load_duration_ms": 1.46,
+        "ms_per_output_token": 9.3385,
+        "prompt_eval_cached_count": 355,
+        "prompt_eval_count": 371,
+        "prompt_eval_duration_ms": 38.988,
+        "route": "/api/chat",
+        "server_prefill_ms": 40.448,
+        "total_duration_ms": 641.065041
+      },
+      "native_generate": {
+        "cache_state": "warm",
+        "client_wall_ms": 646.6775829903781,
+        "done_reason": "length",
+        "eval_count": 64,
+        "eval_duration_ms": 598.299,
+        "load_duration_ms": 1.226,
+        "ms_per_output_token": 9.348421875,
+        "prompt_eval_cached_count": 355,
+        "prompt_eval_count": 371,
+        "prompt_eval_duration_ms": 40.699,
+        "route": "/api/generate",
+        "server_prefill_ms": 41.925,
+        "total_duration_ms": 642.414667
+      },
+      "prompt_sha256_prefix": "8de892c7e8490700"
+    },
+    {
+      "agreement": {
+        "decode_ms_per_token_relative_difference": 0.011825305165972806,
+        "input_tokens_match_native_chat": true,
+        "output_tokens_match_native_chat": true,
+        "total_latency_relative_difference": -0.002695962106333524
+      },
+      "client": {
+        "cache_state": "warm",
+        "input_tokens": 373,
+        "inter_token_latency_p50_ms": 9.287915949244052,
+        "inter_token_latency_sample_count": 63,
+        "ms_per_output_token": 9.466637555132841,
+        "output_tokens": 64,
+        "token_count_method": "server_usage",
+        "total_latency_ms": 641.4349579717964,
+        "tpot_ms": 9.466637555132841,
+        "ttft_ms": 45.03679199842736
+      },
+      "native_chat": {
+        "cache_state": "cold",
+        "client_wall_ms": 644.9209169950336,
+        "done_reason": "length",
+        "eval_count": 64,
+        "eval_duration_ms": 598.784,
+        "load_duration_ms": 1.299167,
+        "ms_per_output_token": 9.356,
+        "prompt_eval_cached_count": 355,
+        "prompt_eval_count": 373,
+        "prompt_eval_duration_ms": 40.199,
+        "route": "/api/chat",
+        "server_prefill_ms": 41.498166999999995,
+        "total_duration_ms": 643.168917
+      },
+      "native_generate": {
+        "cache_state": "warm",
+        "client_wall_ms": 646.381750004366,
+        "done_reason": "length",
+        "eval_count": 64,
+        "eval_duration_ms": 599.529,
+        "load_duration_ms": 1.283916,
+        "ms_per_output_token": 9.367640625,
+        "prompt_eval_cached_count": 355,
+        "prompt_eval_count": 373,
+        "prompt_eval_duration_ms": 39.487,
+        "route": "/api/generate",
+        "server_prefill_ms": 40.770916,
+        "total_duration_ms": 642.705125
+      },
+      "prompt_sha256_prefix": "79fa6ac1e982de15"
+    },
+    {
+      "agreement": {
+        "decode_ms_per_token_relative_difference": 0.01844248227391041,
+        "input_tokens_match_native_chat": true,
+        "output_tokens_match_native_chat": true,
+        "total_latency_relative_difference": 0.0064324674186488125
+      },
+      "client": {
+        "cache_state": "warm",
+        "input_tokens": 376,
+        "inter_token_latency_p50_ms": 9.288666013162583,
+        "inter_token_latency_sample_count": 63,
+        "ms_per_output_token": 9.339706349511824,
+        "output_tokens": 64,
+        "token_count_method": "server_usage",
+        "total_latency_ms": 633.3229590090923,
+        "tpot_ms": 9.339706349511824,
+        "ttft_ms": 44.92145898984745
+      },
+      "native_chat": {
+        "cache_state": "cold",
+        "client_wall_ms": 631.010833021719,
+        "done_reason": "length",
+        "eval_count": 64,
+        "eval_duration_ms": 586.917,
+        "load_duration_ms": 1.633334,
+        "ms_per_output_token": 9.170578125,
+        "prompt_eval_cached_count": 355,
+        "prompt_eval_count": 376,
+        "prompt_eval_duration_ms": 38.031,
+        "route": "/api/chat",
+        "server_prefill_ms": 39.664334,
+        "total_duration_ms": 629.275167
+      },
+      "native_generate": {
+        "cache_state": "warm",
+        "client_wall_ms": 638.2893329719082,
+        "done_reason": "length",
+        "eval_count": 64,
+        "eval_duration_ms": 593.164,
+        "load_duration_ms": 1.203542,
+        "ms_per_output_token": 9.2681875,
+        "prompt_eval_cached_count": 355,
+        "prompt_eval_count": 376,
+        "prompt_eval_duration_ms": 37.888,
+        "route": "/api/generate",
+        "server_prefill_ms": 39.091542,
+        "total_duration_ms": 634.662625
+      },
+      "prompt_sha256_prefix": "fcfd4e4caead84fa"
+    },
+    {
+      "agreement": {
+        "decode_ms_per_token_relative_difference": -0.002031797986916855,
+        "input_tokens_match_native_chat": true,
+        "output_tokens_match_native_chat": true,
+        "total_latency_relative_difference": -0.009195972128800224
+      },
+      "client": {
+        "cache_state": "warm",
+        "input_tokens": 373,
+        "inter_token_latency_p50_ms": 9.284583968110383,
+        "inter_token_latency_sample_count": 63,
+        "ms_per_output_token": 9.327244714811622,
+        "output_tokens": 64,
+        "token_count_method": "server_usage",
+        "total_latency_ms": 635.2273329976015,
+        "tpot_ms": 9.327244714811622,
+        "ttft_ms": 47.610915964469314
+      },
+      "native_chat": {
+        "cache_state": "cold",
+        "client_wall_ms": 642.8485420183279,
+        "done_reason": "length",
+        "eval_count": 64,
+        "eval_duration_ms": 598.159,
+        "load_duration_ms": 1.227583,
+        "ms_per_output_token": 9.346234375,
+        "prompt_eval_cached_count": 355,
+        "prompt_eval_count": 373,
+        "prompt_eval_duration_ms": 39.205,
+        "route": "/api/chat",
+        "server_prefill_ms": 40.432583,
+        "total_duration_ms": 641.123083
+      },
+      "native_generate": {
+        "cache_state": "warm",
+        "client_wall_ms": 642.8694580099545,
+        "done_reason": "length",
+        "eval_count": 64,
+        "eval_duration_ms": 596.943,
+        "load_duration_ms": 1.215209,
+        "ms_per_output_token": 9.327234375,
+        "prompt_eval_cached_count": 355,
+        "prompt_eval_count": 373,
+        "prompt_eval_duration_ms": 39.462,
+        "route": "/api/generate",
+        "server_prefill_ms": 40.677209000000005,
+        "total_duration_ms": 639.852292
+      },
+      "prompt_sha256_prefix": "d8d7db44386af015"
+    }
+  ],
+  "max_tokens": 64,
+  "model": "qwen2.5:1.5b-instruct",
+  "notes": [
+    "Routes run one full pass at a time in a fixed order: /api/chat cold, then /api/generate warm, then the OpenAI client warm.",
+    "Ollama caches served prompts, so only the first route to see a prompt measures a real prefill; the cache_state field on each route records which state it was in.",
+    "Token counts and per-token decode cost do not depend on the cache, so those comparisons are valid across routes.",
+    "Ollama reports eval_duration over all generated tokens, so the client figure compared against it is the decode span divided by output tokens minus one.",
+    "Prefill is reported as absolute medians with their cache state rather than as an agreement ratio between a cold and a warm measurement.",
+    "/api/generate applies the model's chat template with its default system message, so its prompt token count need not equal the /v1 chat count.",
+    "prompt_eval_cached_count shows how much of each prompt the runner served from its resident prefix rather than re-computing."
+  ],
+  "schema_version": "0.2",
+  "server_root": "http://127.0.0.1:11434",
+  "summary": {
+    "input_tokens_match_rate": 1.0,
+    "median_client_ms_per_output_token": 9.466752967989397,
+    "median_client_warm_ttft_ms": 44.75812549935654,
+    "median_decode_ms_per_token_relative_difference": 0.023194224515311983,
+    "median_native_chat_cold_prefill_ms": 40.52825,
+    "median_native_chat_cold_prompt_eval_cached_count": 355.0,
+    "median_native_chat_ms_per_output_token": 9.332203125,
+    "median_native_chat_prompt_eval_count": 373.0,
+    "median_native_generate_warm_prompt_eval_cached_count": 355.0,
+    "median_total_latency_relative_difference": 0.0018682526561576442,
+    "output_tokens_match_rate": 1.0,
+    "prompt_count": 8
+  },
+  "workload": "prompt file crosscheck-shared-x2.jsonl"
+}

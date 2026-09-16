@@ -1,0 +1,17 @@
+{
+  "artifacts": [
+    "manifest.json",
+    "resolved_config.json",
+    "raw_requests.jsonl",
+    "raw_requests.csv",
+    "run_metadata.json",
+    "summary.json",
+    "summary.md",
+    "plots/latency.svg",
+    "throughput_summary.json",
+    "throughput_summary.md"
+  ],
+  "project_version": "0.2.0",
+  "run_type": "throughput_benchmark",
+  "schema_version": "0.2"
+}

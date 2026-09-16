@@ -38,12 +38,13 @@ def server_root(base_url: str) -> str:
 def fetch_server_version(
     base_url: str,
     *,
+    path: str = "/version",
     timeout_seconds: float = 5.0,
     api_key_env: str = DEFAULT_API_KEY_ENV,
 ) -> str | None:
     """The version string reported by the serving process, or None when it cannot be read."""
     try:
-        body = _get(f"{server_root(base_url)}/version", timeout_seconds, api_key_env)
+        body = _get(f"{server_root(base_url)}{path}", timeout_seconds, api_key_env)
         payload = json.loads(body)
     except (ValueError, OSError, urllib_error.URLError):
         return None

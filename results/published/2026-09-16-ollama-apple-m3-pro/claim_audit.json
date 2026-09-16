@@ -1,0 +1,36 @@
+{
+  "blockers": [
+    "missing GPU name (gpu_name)",
+    "missing GPU driver version (gpu_driver_version)",
+    "missing CUDA version (cuda_version)",
+    "missing PyTorch version (torch_version)",
+    "missing exact server command fingerprint (server_command_sha256)",
+    "missing exact tokenizer revision (tokenizer_revision)",
+    "missing optimization profile fingerprint (optimization_profile_fingerprint)",
+    "hardware claims require a vLLM endpoint run, not mock or relabeled output",
+    "an exact dtype must be recorded",
+    "only 32 measured requests; at least 100 are required",
+    "only 0 warmup requests; at least 5 are required",
+    "GPU memory telemetry is unavailable",
+    "server_command.txt is required in the run directory",
+    "optimization_profile.json is required and must be valid: optimization_profile.json is required",
+    "only 32 completed requests; at least 100 are required"
+  ],
+  "evidence": {
+    "backend": "ollama",
+    "error_rate": 0.0,
+    "gpu_name": null,
+    "model": "qwen2.5:1.5b-instruct",
+    "model_revision": "65ec06548149b04c096a120e4a6da9d4017ea809c91734ea5631e89f96ddc57b",
+    "optimization_profile": "ollama-default",
+    "request_count": 32,
+    "warmup_count": 0
+  },
+  "publishable_hardware_claim": false,
+  "run_dir": "results/published/2026-09-16-ollama-apple-m3-pro/concurrency-sweep/c1/repeat-01",
+  "warnings": [
+    "This audit covers one performance run; publish repeated runs, a compatible comparison, and separate quality evidence.",
+    "Artifact checks cannot independently attest that the endpoint process matched the recorded command; preserve operator or platform launch evidence.",
+    "Closed-loop scheduling is susceptible to coordinated omission and is not sufficient for a cross-profile performance ranking."
+  ]
+}

@@ -6,15 +6,32 @@ from typing import Any
 from llm_accel.metrics.io import write_text_atomic
 
 
+def _goodput_lines(goodput: Any) -> list[str]:
+    if not isinstance(goodput, dict):
+        return ["- No SLO was declared, so goodput was not computed."]
+    slo = goodput.get("slo", {})
+    thresholds = ", ".join(f"{name} <= {value:g} ms" for name, value in sorted(slo.items())) or "none"
+    return [
+        f"- SLO: `{thresholds}`",
+        f"- Requests meeting the SLO: `{goodput.get('good_request_count', 0)}`",
+        f"- SLO attainment: `{float(goodput.get('attainment', 0.0)):.3f}`",
+        f"- Good requests/sec: `{float(goodput.get('good_requests_per_second', 0.0)):.3f}`",
+        f"- Good output tokens/sec: `{float(goodput.get('good_output_tokens_per_second', 0.0)):.3f}`",
+    ]
+
+
 def render_summary_markdown(summary: dict[str, Any]) -> str:
     metadata = summary.get("metadata", {})
     metrics = summary.get("metrics", {})
     latency = metrics.get("latency_ms", {})
     ttft = metrics.get("ttft_ms", {})
     tpot = metrics.get("tpot_ms", {})
+    itl = metrics.get("inter_token_latency_ms", {})
+    goodput = metrics.get("goodput")
     queue_delay = metrics.get("queue_delay_ms", {})
     end_to_end = metrics.get("end_to_end_latency_ms", {})
     throughput = metrics.get("throughput", {})
+    client_load = metrics.get("client_load", {})
     memory = summary.get("memory", {})
     warnings = summary.get("warnings", [])
 
@@ -71,6 +88,10 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
         f"| TPOT p50 | {tpot.get('p50', 0.0):.3f} ms |",
         f"| TPOT p95 | {tpot.get('p95', 0.0):.3f} ms |",
         f"| TPOT p99 | {tpot.get('p99', 0.0):.3f} ms |",
+        f"| Inter-token latency samples | {itl.get('sample_count', 0)} |",
+        f"| Inter-token latency p50 | {itl.get('p50', 0.0):.3f} ms |",
+        f"| Inter-token latency p95 | {itl.get('p95', 0.0):.3f} ms |",
+        f"| Inter-token latency p99 | {itl.get('p99', 0.0):.3f} ms |",
         f"| Queue delay p50 | {queue_delay.get('p50', 0.0):.3f} ms |",
         f"| Queue delay p95 | {queue_delay.get('p95', 0.0):.3f} ms |",
         f"| Queue delay p99 | {queue_delay.get('p99', 0.0):.3f} ms |",
@@ -79,6 +100,11 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
         f"| End-to-end latency p99 | {end_to_end.get('p99', 0.0):.3f} ms |",
         f"| Output tokens/sec | {throughput.get('output_tokens_per_second', 0.0):.3f} |",
         f"| Requests/sec | {throughput.get('requests_per_second', 0.0):.3f} |",
+        f"| Client CPU cores used | {client_load.get('cpu_cores_used', 0.0):.3f} |",
+        "",
+        "## Goodput",
+        "",
+        *_goodput_lines(goodput),
         "",
         "## Memory",
         "",

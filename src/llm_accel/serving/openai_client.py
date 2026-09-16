@@ -34,6 +34,8 @@ class CompletionResult:
     # Reasoning deltas are generated tokens: they start TTFT and count as output tokens,
     # but they are kept out of output_text so quality validators only see the answer.
     reasoning_text: str = ""
+    # Gaps between consecutive content-bearing stream chunks, empty for non-streaming calls.
+    inter_token_latencies_ms: tuple[float, ...] = ()
 
     @property
     def tpot_ms(self) -> float:
@@ -84,6 +86,7 @@ class MockOpenAIClient:
             output_tokens=output_tokens,
             input_tokens=input_tokens,
             token_count_method="mock_synthetic",
+            inter_token_latencies_ms=tuple([tpot_ms] * max(output_tokens - 1, 0)) if stream else (),
         )
 
 
@@ -184,6 +187,8 @@ class OpenAICompatibleClient:
             method="POST",
         )
         first_token_at: float | None = None
+        last_token_at: float | None = None
+        inter_token_latencies: list[float] = []
         chunks: list[str] = []
         reasoning_chunks: list[str] = []
         usage: dict[str, object] = {}
@@ -205,8 +210,13 @@ class OpenAICompatibleClient:
                 choices = event.get("choices", [{}])
                 choice = choices[0] if isinstance(choices, list) and choices else {}
                 content, reasoning = self._choice_text(choice, stream=True)
-                if (content or reasoning) and first_token_at is None:
-                    first_token_at = time.perf_counter()
+                if content or reasoning:
+                    arrived_at = time.perf_counter()
+                    if first_token_at is None:
+                        first_token_at = arrived_at
+                    else:
+                        inter_token_latencies.append((arrived_at - last_token_at) * 1000)
+                    last_token_at = arrived_at
                 chunks.append(content)
                 reasoning_chunks.append(reasoning)
 
@@ -224,6 +234,7 @@ class OpenAICompatibleClient:
             input_tokens=input_tokens,
             token_count_method=method,
             reasoning_text=reasoning_text,
+            inter_token_latencies_ms=tuple(inter_token_latencies),
         )
 
     def _endpoint(self) -> str:

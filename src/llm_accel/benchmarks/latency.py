@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from llm_accel import __version__
-from llm_accel.metrics.aggregation import summarize_requests
+from llm_accel.metrics.aggregation import CLIENT_CPU_SATURATION, normalize_slo, summarize_requests
 from llm_accel.metrics.environment import collect_environment_metadata, environment_fingerprint
 from llm_accel.metrics.execution_identity import displayed_base_url, endpoint_sha256
 from llm_accel.metrics.io import write_bytes_atomic, write_json, write_jsonl, write_request_csv
@@ -145,6 +145,7 @@ def _execute_request(
             dispatch_offset_ms=dispatch,
             queue_delay_ms=max(dispatch - scheduled, 0.0),
             end_to_end_latency_ms=max(completed - scheduled, 0.0),
+            inter_token_latencies_ms=result.inter_token_latencies_ms,
         )
         return _MeasuredRequest(
             metrics=metrics,
@@ -468,6 +469,7 @@ def run_latency_benchmark(
     client_processes: int = 1,
     queue_delay_warning_ms: float = 10.0,
     ignore_eos: bool | None = None,
+    slo: dict[str, float] | None = None,
     api_key_env: str = DEFAULT_API_KEY_ENV,
 ) -> dict[str, object]:
     if concurrency <= 0:
@@ -492,6 +494,7 @@ def run_latency_benchmark(
         raise ValueError("timeout_seconds must be finite and positive")
     if not math.isfinite(queue_delay_warning_ms) or queue_delay_warning_ms < 0:
         raise ValueError("queue_delay_warning_ms must be non-negative")
+    resolved_slo = normalize_slo(slo)
     if backend == "vllm" and tokenizer is not None and is_local_tokenizer_reference(tokenizer):
         raise ValueError(
             "local tokenizer paths are mutable and cannot be used for vLLM hardware evidence"
@@ -573,6 +576,8 @@ def run_latency_benchmark(
         "stream": stream,
         "ignore_eos": resolved_ignore_eos,
     }
+    # The goodput SLO is a reporting threshold, not a workload property, so it stays out of
+    # client_configuration and never splits comparison strata.
     client_config = _ClientConfig(
         base_url=base_url,
         model=model,
@@ -587,6 +592,9 @@ def run_latency_benchmark(
         ignore_eos=resolved_ignore_eos,
         api_key_env=api_key_env,
     )
+    # Client CPU is measured around the load only, so a saturated load generator is visible
+    # instead of being mistaken for server latency.
+    client_cpu_before = time.process_time()
     measured = _run_measured_requests(
         prompts=prompts,
         request_schedule=request_schedule,
@@ -594,6 +602,7 @@ def run_latency_benchmark(
         client_processes=client_processes,
         config=client_config,
     )
+    client_cpu_seconds = time.process_time() - client_cpu_before
     records, token_count_method = _finalize_token_counts(measured, client_config)
 
     records.sort(key=lambda record: record.request_id)
@@ -646,6 +655,7 @@ def run_latency_benchmark(
         "client_workers": concurrency,
         "queue_delay_warning_ms": queue_delay_warning_ms,
         "ignore_eos": resolved_ignore_eos,
+        "slo": resolved_slo,
         "client_configuration": client_configuration,
         "token_count_method": token_count_method,
     }
@@ -703,12 +713,19 @@ def run_latency_benchmark(
         client_workers=concurrency,
         queue_delay_warning_ms=queue_delay_warning_ms,
         ignore_eos=resolved_ignore_eos,
+        slo=resolved_slo,
         client_configuration=client_configuration,
         token_count_method=token_count_method,
     )
     metadata_dict = metadata.to_dict()
     metadata_dict["environment_fingerprint"] = environment_fingerprint(metadata_dict)
-    metrics = summarize_requests(records, elapsed_seconds=measured_elapsed_seconds)
+    metrics = summarize_requests(records, elapsed_seconds=measured_elapsed_seconds, slo=resolved_slo)
+    client_load = _summarize_client_load(
+        client_cpu_seconds=client_cpu_seconds,
+        elapsed_seconds=measured_elapsed_seconds,
+        client_processes=client_processes,
+    )
+    metrics["client_load"] = client_load
     memory = summarize_memory(memory_before, memory_after)
     warnings = _build_run_warnings(
         backend=effective_backend,
@@ -725,6 +742,7 @@ def run_latency_benchmark(
         unique_prompt_count=unique_prompt_count,
         token_count_method=token_count_method,
         completed_output_tokens=[record.output_tokens for record in records if record.completed],
+        client_load=client_load,
     )
     summary = {
         "schema_version": metadata.schema_version,
@@ -768,6 +786,25 @@ def measured_span_seconds(records: list[RequestMetrics]) -> float:
     return max(completed - started, 0.0) / 1000
 
 
+def _summarize_client_load(
+    *,
+    client_cpu_seconds: float,
+    elapsed_seconds: float,
+    client_processes: int,
+) -> dict[str, object]:
+    """CPU burned by this load-generator process, in cores, over the measured span.
+
+    `time.process_time` excludes spawned client processes, so multiprocess runs report the
+    coordinator's own cost only and their utilization is not a saturation signal.
+    """
+    return {
+        "cpu_seconds": client_cpu_seconds,
+        "elapsed_seconds": elapsed_seconds,
+        "cpu_cores_used": client_cpu_seconds / elapsed_seconds if elapsed_seconds else 0.0,
+        "covers_all_client_processes": client_processes == 1,
+    }
+
+
 def _build_run_warnings(
     *,
     backend: str,
@@ -784,6 +821,7 @@ def _build_run_warnings(
     unique_prompt_count: int,
     token_count_method: str,
     completed_output_tokens: list[int],
+    client_load: dict[str, object],
 ) -> list[str]:
     warnings: list[str] = []
     if len(set(completed_output_tokens)) > 1:
@@ -839,5 +877,12 @@ def _build_run_warnings(
     if client_processes == 1 and client_workers > 32:
         warnings.append(
             "High concurrency is using a single client process; verify queue delay before interpreting server performance."
+        )
+    cpu_cores_used = float(client_load.get("cpu_cores_used", 0.0))
+    if client_load.get("covers_all_client_processes") and cpu_cores_used > CLIENT_CPU_SATURATION:
+        warnings.append(
+            f"Client saturation detected: the load generator used {cpu_cores_used:.2f} CPU cores, "
+            f"above the {CLIENT_CPU_SATURATION:.2f} core threshold; add --client-processes before "
+            "attributing latency to the server."
         )
     return warnings

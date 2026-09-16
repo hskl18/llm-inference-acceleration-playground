@@ -1,0 +1,10 @@
+{
+  "artifacts": [
+    "manifest.json",
+    "repeats_summary.json",
+    "repeats_summary.md"
+  ],
+  "project_version": "0.2.0",
+  "run_type": "repeated_benchmark",
+  "schema_version": "0.2"
+}

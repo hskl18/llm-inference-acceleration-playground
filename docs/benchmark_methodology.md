@@ -30,10 +30,70 @@ Every streaming request asks for `stream_options.include_usage`, so `openai-comp
 `metadata.token_count_method` is derived from what the endpoint actually reported rather than assumed before the run: `server_usage` when usage was returned, `whitespace_estimate` when it was not, and `mixed:` when requests in one run disagreed.
 Runs that fall back to a whitespace estimate, or that mix methods, say so in `summary.json` warnings.
 - p50, p95, p99 latency
+- inter-token latency p50, p95, p99, and maximum
+- goodput against declared TTFT, TPOT, and end-to-end SLOs
 - failed request count
 - timeout count
 - client queue delay p50, p95, p99, and maximum
 - scheduled-arrival to completion latency
+
+## Inter-Token Latency
+
+TPOT is one number per request: the decode span divided by the output tokens after the first.
+It hides stalls, so a run that pauses for 400 ms in the middle of a response can report the same TPOT as a smooth one.
+
+Streaming runs therefore also record the gap between consecutive content-bearing stream chunks on every request, in `raw_requests.jsonl` as `inter_token_latencies_ms`.
+`metrics.inter_token_latency_ms` pools those samples across completed requests and reports the count, mean, p50, p95, p99, and maximum.
+
+These are chunk-arrival gaps observed by the client.
+They equal per-token latency only when the server emits one token per chunk, which is why they are reported separately from `tpot_ms` rather than replacing it.
+Non-streaming runs record no samples at all, and the claim audit blocks a run that has none.
+
+## Goodput
+
+Average latency and average throughput can both look healthy while a large share of requests misses the latency budget the service actually promises.
+
+Declare the budget with `--slo-ttft-ms`, `--slo-tpot-ms`, and `--slo-e2e-ms`.
+A request counts toward goodput only when it completed and met every declared threshold.
+`metrics.goodput` then reports the declared `slo`, `good_request_count`, `attainment` over all measured requests, `good_requests_per_second`, and `good_output_tokens_per_second`.
+Without a declared SLO, `metrics.goodput` is `null`; nothing is assumed on the user's behalf.
+
+The SLO is a reporting threshold rather than a workload property, so it is recorded in `metadata.slo` but kept out of `metadata.client_configuration`.
+Two runs that differ only in their declared SLO stay in one comparison stratum.
+
+## Repeated Runs
+
+A single run reports percentiles over requests, which says nothing about how much the result moves when the same configuration is run again.
+
+`--repeats N` runs the whole configuration N times into `repeat-01` through `repeat-NN` and writes `repeats_summary.json` and `repeats_summary.md` beside them.
+Each aggregated metric carries the repetition count, mean, sample standard deviation, minimum, maximum, and a two-sided 95% Student t confidence interval for the mean.
+The interval assumes the repetitions are independent draws whose mean is approximately normal, and back-to-back repetitions on one host capture run-to-run noise rather than day-to-day drift.
+A metric that any repetition failed to report is left out instead of being averaged over a partial set.
+
+Some servers cache served prompts, which turns a second pass over the same prompts into a cache-hit measurement rather than a repetition.
+Those repetitions have to use fresh prompts, so they cannot come from rerunning one identical configuration.
+Run them as separate benchmarks into subdirectories of one aggregate directory and combine them afterwards:
+
+```bash
+llm-accel report repeats \
+  --run-dir results/runs/study/repeat-01 \
+  --run-dir results/runs/study/repeat-02 \
+  --run-dir results/runs/study/repeat-03 \
+  --output-dir results/runs/study
+```
+
+Every repetition must live inside the aggregate directory so the bundle stays self-contained and `report validate` can confirm each referenced repetition exists.
+
+## Client Bottleneck Detection
+
+A load generator that cannot keep up reports its own limits as server latency, so every run publishes two independent client signals.
+
+`metrics.queue_delay_ms` measures backlog: how long a scheduled arrival waited before a client worker dispatched it.
+A queue-delay p95 above `--queue-delay-warning-ms` raises a client-saturation warning, and the ranking audit blocks a saturated run outright.
+
+`metrics.client_load` measures cost: the CPU seconds the load generator itself burned over the measured span, expressed as `cpu_cores_used`.
+Above 0.8 cores a single-process client is near the limit of one core under the interpreter lock, and the run warns to add `--client-processes` before attributing latency to the server.
+`time.process_time` does not count spawned client processes, so multiprocess runs set `covers_all_client_processes` to `false` and raise no CPU warning; their backlog signal remains queue delay.
 
 Hardware-backed runs also record model revision, optimization profile, GPU driver, CUDA, PyTorch, backend version, repository commit, and GPU memory when the host exposes them.
 Use `llm-accel report claim-audit` before treating a run as publishable hardware evidence.

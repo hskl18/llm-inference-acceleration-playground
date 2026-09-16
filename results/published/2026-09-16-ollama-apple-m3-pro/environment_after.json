@@ -1,0 +1,70 @@
+{
+  "host": {
+    "cpu": "Apple M3 Pro",
+    "efficiency_cpus": "6",
+    "logical_cpus": "11",
+    "memory_bytes": "19327352832",
+    "performance_cpus": "5",
+    "platform": "macOS-27.0-arm64-arm-64bit"
+  },
+  "load_average": {
+    "15m": 15.4599609375,
+    "1m": 10.5810546875,
+    "5m": 18.74560546875
+  },
+  "ollama_available_models": {
+    "models": [
+      {
+        "capabilities": [
+          "completion",
+          "tools"
+        ],
+        "details": {
+          "context_length": 32768,
+          "embedding_length": 1536,
+          "families": [
+            "qwen2"
+          ],
+          "family": "qwen2",
+          "format": "gguf",
+          "parameter_size": "1.5B",
+          "parent_model": "",
+          "quantization_level": "Q4_K_M"
+        },
+        "digest": "65ec06548149b04c096a120e4a6da9d4017ea809c91734ea5631e89f96ddc57b",
+        "model": "qwen2.5:1.5b-instruct",
+        "modified_at": "2026-09-15T16:23:35.903009243-07:00",
+        "name": "qwen2.5:1.5b-instruct",
+        "size": 986061892
+      }
+    ]
+  },
+  "ollama_loaded_models": {
+    "models": [
+      {
+        "context_length": 4096,
+        "details": {
+          "families": [
+            "qwen2"
+          ],
+          "family": "qwen2",
+          "format": "gguf",
+          "parameter_size": "1.5B",
+          "parent_model": "",
+          "quantization_level": "Q4_K_M"
+        },
+        "digest": "65ec06548149b04c096a120e4a6da9d4017ea809c91734ea5631e89f96ddc57b",
+        "expires_at": "2026-09-16T14:50:10.122778-07:00",
+        "model": "qwen2.5:1.5b-instruct",
+        "name": "qwen2.5:1.5b-instruct",
+        "size": 1163080498,
+        "size_vram": 1163080498
+      }
+    ]
+  },
+  "ollama_version": {
+    "version": "0.34.1"
+  },
+  "phase": "after",
+  "timestamp": "2026-09-16T21:45:10.254306+00:00"
+}

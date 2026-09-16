@@ -38,6 +38,18 @@ BACKEND_CAPABILITIES: dict[str, dict[str, object]] = {
         "optimization_features": ["continuous_batching"],
         "notes": "Hugging Face TGI can expose OpenAI-compatible routes in recent deployments; feature support is deployment-specific.",
     },
+    "ollama": {
+        "streaming": True,
+        "gpu_memory": False,
+        # Quantization is baked into the downloaded GGUF weights, not selected by a serving flag.
+        "quantization_modes": ["unknown"],
+        "optimization_features": ["prompt_prefix_cache"],
+        "notes": (
+            "Ollama exposes OpenAI-compatible routes under /v1 and its own API under /api. It reports "
+            "streaming usage but ignores ignore_eos and min_tokens, and it does not expose NVIDIA GPU "
+            "telemetry; on Apple Silicon it serves from unified memory."
+        ),
+    },
     "openai-compatible": {
         "streaming": True,
         "gpu_memory": False,
