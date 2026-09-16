@@ -277,13 +277,18 @@ baseline_comparison.json
 baseline_comparison.md
 ```
 
+`speculative_summary.json` records the analytical `result` (acceptance rate, lookahead, draft cost ratio, expected tokens per target step, cost per target step, estimated speedup), the `acceptance_curve` over acceptance rates, `acceptance_rate_source` (`declared` or `vllm_metrics`), and `measured_acceptance` with the raw vLLM `/metrics` counters when an endpoint was read.
+`baseline_comparison.json` records per-target-step token yield and cost for target-only and speculative decoding, the estimated speedup, and the relative latency reduction.
+
 ## Quantization Comparison
 
 `quantization_comparison.json` records:
 
-- requested `modes`
+- requested `modes` and the `baseline_mode` everything is scored against
 - backend `supported_modes`
+- per-mode `base_url` (redacted when non-local), `endpoint_sha256`, and `served_models`
 - per-mode `support_status`
 - whether the mode was `measured`
 - per-mode summary path and quality sanity result when measured
-- `warnings` for unsupported or unknown support
+- per-mode `quality_vs_baseline` with the temperature-0 `exact_match_rate`, `prompt_logprobs_supported`, `perplexity`, and `perplexity_delta_from_baseline`
+- `warnings` for unsupported or unknown support, unconfirmed served models, missing prompt logprobs, and outputs that diverge from the baseline mode

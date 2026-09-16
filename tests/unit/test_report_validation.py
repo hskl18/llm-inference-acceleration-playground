@@ -109,8 +109,9 @@ def test_validate_run_dir_checks_quantization_comparison_counts(tmp_path) -> Non
 {
   "model": "mock-model",
   "backend": "mock",
-  "modes": ["none", "int8"],
-  "supported_modes": ["none", "int8"],
+  "baseline_mode": "none",
+  "modes": ["none", "fp8"],
+  "supported_modes": ["none"],
   "runs": [{}],
   "warnings": [],
   "notes": []

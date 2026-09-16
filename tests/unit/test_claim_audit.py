@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 
 from llm_accel.benchmarks.latency import run_latency_benchmark
-from llm_accel.reports.claim_audit import audit_hardware_claim
+from llm_accel.metrics.optimization_profile import OptimizationProfile, create_optimization_profile
+from llm_accel.reports.claim_audit import _validate_vllm_profile_flags, audit_hardware_claim
 
 
 def test_claim_audit_rejects_mock_results_even_with_enough_requests(tmp_path) -> None:
     command_file = tmp_path.parent / "server-command.txt"
     command_file.write_text(
-        "python -m vllm.entrypoints.openai.api_server --model mock-model "
+        "vllm serve mock-model --no-enable-prefix-caching --no-enable-chunked-prefill "
         f"--revision {'a' * 40} --dtype float16\n",
         encoding="utf-8",
     )
@@ -70,7 +71,7 @@ def test_claim_audit_fails_closed_on_invalid_manifest_json(tmp_path) -> None:
 def test_claim_audit_recomputes_server_command_hash(tmp_path) -> None:
     command_file = tmp_path.parent / "server-command.txt"
     command_file.write_text(
-        "python -m vllm.entrypoints.openai.api_server --model mock-model "
+        "vllm serve mock-model --no-enable-prefix-caching --no-enable-chunked-prefill "
         f"--revision {'b' * 40} --dtype float16\n",
         encoding="utf-8",
     )
@@ -168,7 +169,7 @@ def test_claim_audit_rejects_mutable_local_tokenizer_identity(tmp_path) -> None:
 def test_claim_audit_binds_optimization_profile_to_command_flags(tmp_path) -> None:
     command_file = tmp_path.parent / "baseline-command.txt"
     command_file.write_text(
-        "python -m vllm.entrypoints.openai.api_server --model mock-model "
+        "vllm serve mock-model --no-enable-prefix-caching --no-enable-chunked-prefill "
         f"--revision {'c' * 40} --dtype float16\n",
         encoding="utf-8",
     )
@@ -189,6 +190,115 @@ def test_claim_audit_binds_optimization_profile_to_command_flags(tmp_path) -> No
     report = audit_hardware_claim(tmp_path)
 
     assert any("optimization_profile does not match" in blocker for blocker in report["blockers"])
+
+
+def test_claim_audit_rejects_the_removed_api_server_entrypoint(tmp_path) -> None:
+    command_file = tmp_path.parent / "legacy-command.txt"
+    command_file.write_text(
+        "python -m vllm.entrypoints.openai.api_server --model mock-model "
+        f"--revision {'d' * 40} --dtype float16\n",
+        encoding="utf-8",
+    )
+    run_latency_benchmark(
+        base_url="mock://local",
+        model="mock-model",
+        model_revision="d" * 40,
+        concurrency=1,
+        input_tokens=16,
+        output_tokens=8,
+        output_dir=tmp_path,
+        request_count=2,
+        dtype="float16",
+        server_command_file=command_file,
+    )
+
+    report = audit_hardware_claim(tmp_path)
+
+    assert any("`vllm serve <model>` command" in blocker for blocker in report["blockers"])
+
+
+def test_claim_audit_requires_explicit_prefix_caching_and_chunked_prefill(tmp_path) -> None:
+    command_file = tmp_path.parent / "implicit-command.txt"
+    command_file.write_text(
+        f"vllm serve mock-model --revision {'e' * 40} --dtype float16\n",
+        encoding="utf-8",
+    )
+    run_latency_benchmark(
+        base_url="mock://local",
+        model="mock-model",
+        model_revision="e" * 40,
+        concurrency=1,
+        input_tokens=16,
+        output_tokens=8,
+        output_dir=tmp_path,
+        request_count=2,
+        dtype="float16",
+        server_command_file=command_file,
+    )
+
+    report = audit_hardware_claim(tmp_path)
+
+    assert any("does not state prefix caching explicitly" in blocker for blocker in report["blockers"])
+    assert any("does not state chunked prefill explicitly" in blocker for blocker in report["blockers"])
+
+
+def _vllm_profile(command: str, **overrides: object) -> OptimizationProfile:
+    fields: dict[str, object] = {
+        "name": "speculative",
+        "backend": "vllm",
+        "backend_version": "0.29.0",
+        "server_command": command,
+        "model": "demo-model",
+        "model_revision": "a" * 40,
+        "tokenizer": "demo-model",
+        "tokenizer_revision": "a" * 40,
+        "dtype": "float16",
+        "quantization": "none",
+        "environment_fingerprint": "f" * 64,
+        "speculative_model": "draft-model",
+        "speculative_model_revision": "b" * 40,
+        "num_speculative_tokens": 5,
+    }
+    fields.update(overrides)
+    return create_optimization_profile(**fields)  # type: ignore[arg-type]
+
+
+SPECULATIVE_COMMAND = (
+    f"vllm serve demo-model --revision {'a' * 40} --tokenizer demo-model "
+    f"--tokenizer-revision {'a' * 40} --dtype float16 "
+    "--no-enable-prefix-caching --no-enable-chunked-prefill "
+    """--speculative-config '{"method":"draft_model","model":"draft-model","num_speculative_tokens":5}'"""
+)
+
+
+def test_speculative_config_json_binds_to_the_optimization_profile() -> None:
+    blockers: list[str] = []
+
+    _validate_vllm_profile_flags(_vllm_profile(SPECULATIVE_COMMAND), blockers)
+
+    assert blockers == []
+
+
+def test_speculative_config_mismatch_is_a_blocker() -> None:
+    blockers: list[str] = []
+
+    _validate_vllm_profile_flags(
+        _vllm_profile(SPECULATIVE_COMMAND, num_speculative_tokens=3),
+        blockers,
+    )
+
+    assert any("num_speculative_tokens does not match --speculative-config" in item for item in blockers)
+
+
+def test_declared_speculative_decoding_without_a_command_flag_is_a_blocker() -> None:
+    blockers: list[str] = []
+
+    _validate_vllm_profile_flags(
+        _vllm_profile(SPECULATIVE_COMMAND.split(" --speculative-config")[0]),
+        blockers,
+    )
+
+    assert any("does not" in item and "speculative" in item for item in blockers)
 
 
 def test_claim_audit_warns_when_vllm_output_length_was_not_fixed(tmp_path) -> None:

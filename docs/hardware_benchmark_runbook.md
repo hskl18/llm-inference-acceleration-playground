@@ -28,7 +28,8 @@ Record these fields before collection:
 
 - GPU model and memory capacity.
 - NVIDIA driver and CUDA versions.
-- Python, PyTorch, and vLLM versions.
+- Python and PyTorch versions.
+- vLLM version as reported by the server's `/version` endpoint, not the client's installed package.
 - Full immutable target-model revision.
 - Full immutable tokenizer revision.
 - Token counting method `prompt=server_usage;output=tokenizers.encode(add_special_tokens=false)` in summary and raw request evidence.
@@ -58,6 +59,9 @@ Do not start billable hardware or use a paid endpoint without separate authoriza
 
 Generate each command with `llm-accel vllm command`, preserve the exact output as a command file, and launch each profile on its own port or host.
 The examples below omit model-specific quantization and speculative arguments that must be selected for the authorized model and hardware.
+
+Every generated command is a `vllm serve <model>` command line and states prefix caching and chunked prefill explicitly, because vLLM enables both by default.
+A baseline that omits the flags is not a baseline, and `report claim-audit` rejects a command that leaves either feature implicit.
 
 Baseline example:
 
@@ -94,6 +98,31 @@ llm-accel vllm command \
   > chunked-prefill-server-command.txt
 ```
 
+Speculative example. Current vLLM takes one `--speculative-config` JSON object; `--speculative-model` and `--num-speculative-tokens` no longer exist as server flags.
+
+```bash
+llm-accel vllm command \
+  --model MODEL_ID \
+  --revision MODEL_REVISION \
+  --dtype float16 \
+  --port 8003 \
+  --speculative-model DRAFT_MODEL_ID \
+  --num-speculative-tokens 5 \
+  > speculative-server-command.txt
+```
+
+Quantized example. Use a vLLM method name such as `awq`, `gptq`, `fp8`, or `compressed-tensors`; `int8` and `int4` are rejected.
+
+```bash
+llm-accel vllm command \
+  --model QUANTIZED_MODEL_ID \
+  --revision MODEL_REVISION \
+  --dtype float16 \
+  --port 8004 \
+  --quantization fp8 \
+  > quantized-server-command.txt
+```
+
 Validate each live endpoint before the matrix run:
 
 ```bash
@@ -105,6 +134,10 @@ llm-accel vllm validate \
   --smoke \
   --output-dir results/hardware-v0.2/validation/baseline
 ```
+
+Validation asks the server about itself: `GET /version` identifies the serving process and `GET /metrics` reports serving state, including prefix-cache and speculative-decoding counters.
+A missing local `vllm` package or `nvidia-smi` on the benchmark client is informational, because the client is usually not the server.
+Add `--same-host` only when the client and the server really are the same machine; then both become blockers again.
 
 Repeat validation with the exact flags and URL for every treatment.
 Do not proceed when any validation artifact reports blockers.
@@ -134,6 +167,8 @@ If queue-delay p95 exceeds the stricter of the declared threshold and the audit'
 
 Every real profile mapping must provide its own `base_url` and `server_command_file`.
 The profile fields must match the exact command flags, including quantization, prefix cache, chunked prefill, speculative model, speculative token count, batching limits, model length, and GPU-memory utilization.
+Speculative fields are matched against the `--speculative-config` JSON object rather than against separate flags.
+`bench matrix` rejects a vLLM profile whose `quantization` is not a vLLM method name.
 
 ## Run and Resume
 

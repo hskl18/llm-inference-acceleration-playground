@@ -31,7 +31,7 @@ from llm_accel.serving.openai_client import (
     OpenAICompatibleClient,
     count_generated_tokens,
 )
-from llm_accel.serving.versions import detect_backend_version
+from llm_accel.serving.versions import resolve_backend_version
 from llm_accel.workloads.prompts import (
     estimate_prompt_tokens,
     fixed_prompt_batch,
@@ -554,7 +554,14 @@ def run_latency_benchmark(
         prompt_token_counts: list[int] = []
     else:
         prompt_token_counts = [estimate_prompt_tokens(prompt) for prompt in prompts]
-    backend_version = detect_backend_version(effective_backend)
+    # The serving process decides what served the run, so a remote endpoint is asked directly;
+    # the client's installed package is only a same-host fallback.
+    backend_version, backend_version_source = resolve_backend_version(
+        effective_backend,
+        base_url,
+        timeout_seconds=timeout_seconds,
+        api_key_env=api_key_env,
+    )
     client_configuration = {
         "request_schedule": request_schedule,
         "request_rate_rps": request_rate_rps,
@@ -623,6 +630,7 @@ def run_latency_benchmark(
         "quantization": quantization,
         "backend": effective_backend,
         "backend_version": backend_version,
+        "backend_version_source": backend_version_source,
         "api_kind": api_kind,
         "seed": seed,
         "stream": stream,
@@ -705,6 +713,7 @@ def run_latency_benchmark(
     warnings = _build_run_warnings(
         backend=effective_backend,
         backend_version=backend_version,
+        backend_version_source=backend_version_source,
         stream=stream,
         memory=memory,
         metrics=metrics,
@@ -763,6 +772,7 @@ def _build_run_warnings(
     *,
     backend: str,
     backend_version: str | None,
+    backend_version_source: str,
     stream: bool,
     memory: dict[str, object],
     metrics: dict[str, object],
@@ -801,6 +811,11 @@ def _build_run_warnings(
         warnings.append("Mock backend results validate workflow only; they are not hardware performance claims.")
     if backend_version is None:
         warnings.append(f"Backend version is unavailable for backend {backend!r}.")
+    elif backend_version_source == "client_package":
+        warnings.append(
+            f"Backend version {backend_version!r} came from the client's installed package, not the "
+            "server; it only describes the endpoint when the client and server share a host."
+        )
     if not stream:
         warnings.append("Non-streaming mode cannot observe TTFT; TTFT is recorded as total request latency.")
     if not memory.get("available", False):

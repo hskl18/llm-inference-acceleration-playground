@@ -48,8 +48,8 @@ Version 0.2.0 adds measurement-correct experiment orchestration while preserving
 - endpoint health checks through `doctor`
 - backend adapter profiles
 - packaged example configs for installed CLI users
-- toy speculative decoding accounting
-- speculative decoding acceptance-curve reports
+- analytical speculative decoding speedup model with acceptance-curve reports
+- measured speculative acceptance read from a vLLM Prometheus endpoint
 - unit and integration tests
 
 OpenAI-compatible endpoint calls are implemented with the Python standard library.
@@ -246,6 +246,9 @@ llm-accel vllm command \
   --enable-chunked-prefill
 ```
 
+The output is a `vllm serve <model>` command line.
+Prefix caching and chunked prefill are always stated explicitly, because vLLM enables both by default, and speculative settings are emitted as one `--speculative-config` JSON object.
+
 Validate vLLM benchmark readiness:
 
 ```bash
@@ -268,17 +271,20 @@ llm-accel vllm plan \
   --output-dir results/runs/vllm-plan
 ```
 
-Run a mock quantization comparison:
+Compare quantization modes, one already-running endpoint per mode:
 
 ```bash
 llm-accel quantization compare \
-  --base-url mock://local \
-  --model mock-model \
-  --modes none,int8,int4 \
-  --output-dir results/runs/quantization-smoke
+  --model MODEL_ID \
+  --backend vllm \
+  --mode none=http://localhost:8000/v1 \
+  --mode awq=http://localhost:8001/v1 \
+  --output-dir results/runs/quantization-comparison
 ```
 
-Requested quantization modes are labeled as `supported`, `unsupported`, or `unknown`; unsupported modes are reported but not benchmarked.
+A quantization mode is a property of the loaded weights, so two modes may not share one endpoint.
+The first mode is the baseline, and every other mode is scored against it with a temperature-0 exact-match rate plus a perplexity delta where the backend returns prompt logprobs.
+Requested modes are labeled as `supported`, `unsupported`, or `unknown`; unsupported modes are reported but not benchmarked.
 
 ## Development
 

@@ -9,6 +9,10 @@ llm-accel backend show --backend sglang
 llm-accel backend profile --backend vllm --base-url http://localhost:8000/v1
 ```
 
+Known quantization modes use each backend's own method names.
+For vLLM they come from `QuantizationMethods` in `vllm/model_executor/layers/quantization/__init__.py` (v0.29.0), so `awq`, `gptq`, `fp8`, and `compressed-tensors` are modes while `int8` and `int4` are not.
+The mock backend never quantizes, and TensorRT-LLM selects quantization when the engine is built rather than through a serving flag, so it reports `unknown`.
+
 The capability matrix records:
 
 - streaming support
@@ -28,6 +32,9 @@ Current named backends:
 | `tensorrt-llm` | OpenAI-compatible HTTP | in-flight batching, paged KV cache, KV cache reuse, speculative decoding |
 | `tgi` | OpenAI-compatible HTTP | continuous batching |
 | `openai-compatible` | OpenAI-compatible HTTP | unknown server-side capabilities |
+
+`backend profile` reports `backend_version` together with `backend_version_source`.
+For a vLLM endpoint it asks the server's `GET /version` first and only falls back to the client's installed package, because the benchmark client is usually not the serving host.
 
 `llm-accel doctor --backend vllm` also includes optional GPU memory telemetry. Missing `nvidia-smi` is reported as unavailable, not as a test failure.
 

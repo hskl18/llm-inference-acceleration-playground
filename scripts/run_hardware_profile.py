@@ -12,9 +12,15 @@ from llm_accel.metrics.manifest import write_run_manifest
 from llm_accel.reports.claim_audit import audit_hardware_claim
 from llm_accel.reports.comparison import compare_run_summaries
 from llm_accel.serving.vllm import (
+    VLLM_SERVE_ARGV_PREFIX,
+    is_vllm_serve_argv,
     normalize_vllm_dtype,
     optimization_profile_name,
     require_immutable_revision,
+    vllm_boolean_flag,
+    vllm_flag_value,
+    vllm_served_model,
+    vllm_speculative_config,
 )
 
 
@@ -150,32 +156,35 @@ def _validate_server_command(
     profile: str,
 ) -> None:
     argv = shlex.split(command.decode("utf-8").strip())
-    if argv[:3] != ["python", "-m", "vllm.entrypoints.openai.api_server"]:
-        raise ValueError("server command file is not a vLLM API server command")
-    expected = {"--model": model, "--revision": revision, "--dtype": dtype}
+    if not is_vllm_serve_argv(argv):
+        raise ValueError(
+            f"server command file is not a `{' '.join(VLLM_SERVE_ARGV_PREFIX)} <model>` command"
+        )
+    if vllm_served_model(argv) != model:
+        raise ValueError("server command model argument does not match collector arguments")
+    expected = {"--revision": revision, "--dtype": dtype}
     for flag, value in expected.items():
-        if _flag_value(argv, flag) != value:
+        if vllm_flag_value(argv, flag) != value:
             raise ValueError(f"server command {flag} does not match collector arguments")
-    if (_flag_value(argv, "--quantization") or "none") != quantization:
+    if (vllm_flag_value(argv, "--quantization") or "none") != quantization:
         raise ValueError("server command --quantization does not match collector arguments")
+    prefix_caching = vllm_boolean_flag(argv, "enable-prefix-caching")
+    chunked_prefill = vllm_boolean_flag(argv, "enable-chunked-prefill")
+    for name, value in [("prefix caching", prefix_caching), ("chunked prefill", chunked_prefill)]:
+        if value is None:
+            raise ValueError(
+                f"server command does not state {name} explicitly; vLLM enables it by default"
+            )
     command_profile = optimization_profile_name(
-        enable_prefix_caching="--enable-prefix-caching" in argv,
-        enable_chunked_prefill="--enable-chunked-prefill" in argv,
-        speculative_model=_flag_value(argv, "--speculative-model"),
-        quantization=_flag_value(argv, "--quantization"),
+        enable_prefix_caching=bool(prefix_caching),
+        enable_chunked_prefill=bool(chunked_prefill),
+        speculative=vllm_speculative_config(argv) is not None,
+        quantization=vllm_flag_value(argv, "--quantization"),
     )
     if command_profile != profile:
         raise ValueError(
             f"server command implies optimization profile {command_profile!r}, not {profile!r}"
         )
-
-
-def _flag_value(argv: list[str], flag: str) -> str | None:
-    try:
-        index = argv.index(flag)
-    except ValueError:
-        return None
-    return argv[index + 1] if index + 1 < len(argv) else None
 
 
 if __name__ == "__main__":

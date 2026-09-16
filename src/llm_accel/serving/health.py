@@ -5,6 +5,7 @@ import time
 from urllib import error as urllib_error
 from urllib import request
 
+from llm_accel.metrics.execution_identity import displayed_base_url
 from llm_accel.serving.openai_client import DEFAULT_API_KEY_ENV, bearer_auth_header
 
 
@@ -20,7 +21,7 @@ def check_endpoint_health(
     """
     if base_url.startswith("mock://"):
         return {
-            "base_url": base_url,
+            "base_url": displayed_base_url(base_url),
             "healthy": True,
             "status": "healthy",
             "status_code": None,
@@ -54,7 +55,7 @@ def check_endpoint_health(
         status = "unreachable"
         error = str(exc)
     return {
-        "base_url": base_url if base_url.startswith(("http://localhost", "http://127.0.0.1")) else "redacted",
+        "base_url": displayed_base_url(base_url),
         "healthy": status == "healthy",
         "status": status,
         "status_code": status_code,
