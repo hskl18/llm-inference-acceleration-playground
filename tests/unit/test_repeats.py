@@ -171,3 +171,95 @@ def test_multiprocess_client_cpu_is_not_treated_as_a_saturation_signal() -> None
     )
 
     assert not any("CPU cores" in warning for warning in warnings)
+
+
+def test_report_repeats_aggregates_runs_that_used_different_workloads(tmp_path) -> None:
+    aggregate_dir = tmp_path / "prefix-arm"
+    for repetition, seed in enumerate([1, 2, 3], start=1):
+        # Each repetition uses a different prompt set, which is why it cannot be produced by
+        # rerunning one identical configuration.
+        run_latency_benchmark(
+            base_url="mock://local",
+            model="mock-model",
+            concurrency=1,
+            input_tokens=16,
+            output_tokens=8,
+            request_count=4,
+            seed=seed,
+            output_dir=aggregate_dir / f"repeat-{repetition:02d}",
+        )
+
+    assert (
+        main(
+            [
+                "report",
+                "repeats",
+                "--run-dir",
+                str(aggregate_dir / "repeat-01"),
+                "--run-dir",
+                str(aggregate_dir / "repeat-02"),
+                "--run-dir",
+                str(aggregate_dir / "repeat-03"),
+                "--output-dir",
+                str(aggregate_dir),
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads((aggregate_dir / "repeats_summary.json").read_text(encoding="utf-8"))
+    assert payload["repeat_dirs"] == ["repeat-01", "repeat-02", "repeat-03"]
+    assert payload["metrics"]["ttft_ms.p50"]["count"] == 3
+    assert validate_run_dir(aggregate_dir)["valid"] is True
+
+
+def test_report_repeats_rejects_a_repetition_outside_the_aggregate_directory(tmp_path) -> None:
+    outside = tmp_path / "outside"
+    run_latency_benchmark(
+        base_url="mock://local",
+        model="mock-model",
+        concurrency=1,
+        input_tokens=16,
+        output_tokens=8,
+        request_count=2,
+        output_dir=outside,
+    )
+    aggregate_dir = tmp_path / "aggregate"
+    aggregate_dir.mkdir()
+
+    assert (
+        main(
+            [
+                "report",
+                "repeats",
+                "--run-dir",
+                str(outside),
+                "--run-dir",
+                str(outside),
+                "--output-dir",
+                str(aggregate_dir),
+            ]
+        )
+        == 2
+    )
+
+
+def test_repeats_validation_rejects_a_missing_repetition(tmp_path) -> None:
+    aggregate_dir = tmp_path / "broken"
+    payload = {
+        "schema_version": "0.2",
+        "repeats": 2,
+        "repeat_dirs": ["repeat-01", "repeat-02"],
+        "metadata": {},
+        "metrics": {"ttft_ms.p50": {"count": 2, "mean": 1.0, "sample_stddev": 0.0, "min": 1.0, "max": 1.0, "ci95_low": 1.0, "ci95_high": 1.0}},
+        "failed_request_count": 0,
+        "warnings": [],
+        "notes": [],
+    }
+    aggregate_dir.mkdir()
+    (aggregate_dir / "repeats_summary.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    result = validate_run_dir(aggregate_dir)
+
+    assert result["valid"] is False
+    assert any("missing repetition repeat-01" in error for error in result["errors"])

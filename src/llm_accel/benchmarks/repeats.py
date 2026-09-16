@@ -46,6 +46,28 @@ def run_repeated_benchmark(
         repeat_id = f"repeat-{repetition:02d}"
         summaries.append(runner(output_dir=base_dir / repeat_id, **benchmark_kwargs))
         repeat_dirs.append(repeat_id)
+    return aggregate_repeats(summaries, repeat_dirs=repeat_dirs, output_dir=base_dir)
+
+
+def aggregate_repeats(
+    summaries: list[dict[str, object]],
+    *,
+    repeat_dirs: list[str],
+    output_dir: str | Path,
+) -> dict[str, object]:
+    """Aggregate repetitions that already exist on disk under `output_dir`.
+
+    Some workloads cannot repeat the identical configuration: a server with a prompt cache
+    turns a second pass over the same prompts into a cache-hit measurement, so each repetition
+    must use its own fresh prompt set. Those repetitions are separate runs that still belong to
+    one aggregate, which is why aggregation is available apart from execution.
+    """
+    if len(summaries) < 2:
+        raise ValueError("at least two repetitions are required to report variance")
+    if len(summaries) != len(repeat_dirs):
+        raise ValueError("every repetition needs its own directory name")
+    base_dir = Path(output_dir)
+    repeats = len(summaries)
 
     payload = {
         "schema_version": "0.2",
@@ -58,7 +80,7 @@ def run_repeated_benchmark(
         ),
         "warnings": sorted({warning for summary in summaries for warning in _warnings(summary)}),
         "notes": [
-            "Each repetition is an independent run of the same configuration in its own directory.",
+            "Each repetition is an independent run in its own directory under this one.",
             "Confidence intervals are two-sided 95% Student t intervals for the mean of the repetitions.",
             "Repetitions run back to back on one host, so they capture run-to-run noise, not day-to-day drift.",
         ],

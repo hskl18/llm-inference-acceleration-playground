@@ -70,6 +70,20 @@ Each aggregated metric carries the repetition count, mean, sample standard devia
 The interval assumes the repetitions are independent draws whose mean is approximately normal, and back-to-back repetitions on one host capture run-to-run noise rather than day-to-day drift.
 A metric that any repetition failed to report is left out instead of being averaged over a partial set.
 
+Some servers cache served prompts, which turns a second pass over the same prompts into a cache-hit measurement rather than a repetition.
+Those repetitions have to use fresh prompts, so they cannot come from rerunning one identical configuration.
+Run them as separate benchmarks into subdirectories of one aggregate directory and combine them afterwards:
+
+```bash
+llm-accel report repeats \
+  --run-dir results/runs/study/repeat-01 \
+  --run-dir results/runs/study/repeat-02 \
+  --run-dir results/runs/study/repeat-03 \
+  --output-dir results/runs/study
+```
+
+Every repetition must live inside the aggregate directory so the bundle stays self-contained and `report validate` can confirm each referenced repetition exists.
+
 ## Client Bottleneck Detection
 
 A load generator that cannot keep up reports its own limits as server latency, so every run publishes two independent client signals.

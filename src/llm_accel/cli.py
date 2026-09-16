@@ -9,7 +9,7 @@ from pathlib import Path
 from llm_accel import __version__
 from llm_accel.benchmarks.latency import run_latency_benchmark
 from llm_accel.benchmarks.matrix import run_matrix
-from llm_accel.benchmarks.repeats import run_repeated_benchmark
+from llm_accel.benchmarks.repeats import aggregate_repeats, run_repeated_benchmark
 from llm_accel.benchmarks.sweep import run_sweep
 from llm_accel.benchmarks.throughput import run_throughput_benchmark
 from llm_accel.config.loader import ConfigError
@@ -149,6 +149,18 @@ def build_parser() -> argparse.ArgumentParser:
     compare_report.add_argument("--baseline-profile", default="baseline")
     compare_report.add_argument("--mode", choices=["strict", "stratified"], default="strict")
     compare_report.set_defaults(func=cmd_report_compare)
+    repeats_report = report_sub.add_parser(
+        "repeats",
+        help="Aggregate repetitions that already exist under one directory",
+    )
+    repeats_report.add_argument(
+        "--run-dir",
+        action="append",
+        required=True,
+        help="Repetition directory inside --output-dir; repeat the flag once per repetition",
+    )
+    repeats_report.add_argument("--output-dir", required=True)
+    repeats_report.set_defaults(func=cmd_report_repeats)
     claim_audit = report_sub.add_parser("claim-audit", help="Audit whether one run can support a hardware claim")
     claim_audit.add_argument("--run-dir", required=True)
     claim_audit.set_defaults(func=cmd_report_claim_audit)
@@ -525,6 +537,25 @@ def cmd_report_compare(args: argparse.Namespace) -> int:
         comparison_mode=args.mode,
     )
     print(json.dumps({"output_dir": args.output_dir, "summary_count": result["summary_count"]}, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_report_repeats(args: argparse.Namespace) -> int:
+    output_dir = Path(args.output_dir).resolve()
+    summaries: list[dict[str, object]] = []
+    repeat_dirs: list[str] = []
+    for run_dir in args.run_dir:
+        resolved = Path(run_dir).resolve()
+        try:
+            # Keeping repetitions inside the aggregate directory makes the bundle self-contained
+            # and lets report validate confirm every referenced repetition exists.
+            relative = resolved.relative_to(output_dir)
+        except ValueError as exc:
+            raise ValueError(f"repetition {run_dir} must live inside {args.output_dir}") from exc
+        summaries.append(json.loads((resolved / "summary.json").read_text(encoding="utf-8")))
+        repeat_dirs.append(relative.as_posix())
+    aggregate = aggregate_repeats(summaries, repeat_dirs=repeat_dirs, output_dir=output_dir)
+    print(json.dumps({"output_dir": args.output_dir, "repeats": aggregate["repeats"], "metrics": aggregate["metrics"]}, indent=2, sort_keys=True))
     return 0
 
 
