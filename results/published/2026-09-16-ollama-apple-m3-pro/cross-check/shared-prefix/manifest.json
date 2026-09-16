@@ -1,0 +1,10 @@
+{
+  "artifacts": [
+    "manifest.json",
+    "cross_check.json",
+    "cross_check.md"
+  ],
+  "project_version": "0.2.0",
+  "run_type": "ollama_cross_check",
+  "schema_version": "0.2"
+}

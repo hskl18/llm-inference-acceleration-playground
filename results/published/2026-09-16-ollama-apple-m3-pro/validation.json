@@ -1,0 +1,178 @@
+{
+  "all_valid": true,
+  "results": [
+    {
+      "errors": [],
+      "path": "concurrency-sweep/c1",
+      "valid": true,
+      "warnings": [
+        "no standard summary artifact found"
+      ]
+    },
+    {
+      "errors": [],
+      "path": "concurrency-sweep/c1/repeat-01",
+      "valid": true,
+      "warnings": []
+    },
+    {
+      "errors": [],
+      "path": "concurrency-sweep/c1/repeat-02",
+      "valid": true,
+      "warnings": []
+    },
+    {
+      "errors": [],
+      "path": "concurrency-sweep/c1/repeat-03",
+      "valid": true,
+      "warnings": []
+    },
+    {
+      "errors": [],
+      "path": "concurrency-sweep/c2",
+      "valid": true,
+      "warnings": [
+        "no standard summary artifact found"
+      ]
+    },
+    {
+      "errors": [],
+      "path": "concurrency-sweep/c2/repeat-01",
+      "valid": true,
+      "warnings": []
+    },
+    {
+      "errors": [],
+      "path": "concurrency-sweep/c2/repeat-02",
+      "valid": true,
+      "warnings": []
+    },
+    {
+      "errors": [],
+      "path": "concurrency-sweep/c2/repeat-03",
+      "valid": true,
+      "warnings": []
+    },
+    {
+      "errors": [],
+      "path": "concurrency-sweep/c4",
+      "valid": true,
+      "warnings": [
+        "no standard summary artifact found"
+      ]
+    },
+    {
+      "errors": [],
+      "path": "concurrency-sweep/c4/repeat-01",
+      "valid": true,
+      "warnings": []
+    },
+    {
+      "errors": [],
+      "path": "concurrency-sweep/c4/repeat-02",
+      "valid": true,
+      "warnings": []
+    },
+    {
+      "errors": [],
+      "path": "concurrency-sweep/c4/repeat-03",
+      "valid": true,
+      "warnings": []
+    },
+    {
+      "errors": [],
+      "path": "concurrency-sweep/c8",
+      "valid": true,
+      "warnings": [
+        "no standard summary artifact found"
+      ]
+    },
+    {
+      "errors": [],
+      "path": "concurrency-sweep/c8/repeat-01",
+      "valid": true,
+      "warnings": []
+    },
+    {
+      "errors": [],
+      "path": "concurrency-sweep/c8/repeat-02",
+      "valid": true,
+      "warnings": []
+    },
+    {
+      "errors": [],
+      "path": "concurrency-sweep/c8/repeat-03",
+      "valid": true,
+      "warnings": []
+    },
+    {
+      "errors": [],
+      "path": "cross-check/shared-prefix",
+      "valid": true,
+      "warnings": [
+        "no standard summary artifact found"
+      ]
+    },
+    {
+      "errors": [],
+      "path": "cross-check/unique-prefix",
+      "valid": true,
+      "warnings": [
+        "no standard summary artifact found"
+      ]
+    },
+    {
+      "errors": [],
+      "path": "prefix-sharing/shared-prefix",
+      "valid": true,
+      "warnings": [
+        "no standard summary artifact found"
+      ]
+    },
+    {
+      "errors": [],
+      "path": "prefix-sharing/shared-prefix/repeat-01",
+      "valid": true,
+      "warnings": []
+    },
+    {
+      "errors": [],
+      "path": "prefix-sharing/shared-prefix/repeat-02",
+      "valid": true,
+      "warnings": []
+    },
+    {
+      "errors": [],
+      "path": "prefix-sharing/shared-prefix/repeat-03",
+      "valid": true,
+      "warnings": []
+    },
+    {
+      "errors": [],
+      "path": "prefix-sharing/unique-prefix",
+      "valid": true,
+      "warnings": [
+        "no standard summary artifact found"
+      ]
+    },
+    {
+      "errors": [],
+      "path": "prefix-sharing/unique-prefix/repeat-01",
+      "valid": true,
+      "warnings": []
+    },
+    {
+      "errors": [],
+      "path": "prefix-sharing/unique-prefix/repeat-02",
+      "valid": true,
+      "warnings": []
+    },
+    {
+      "errors": [],
+      "path": "prefix-sharing/unique-prefix/repeat-03",
+      "valid": true,
+      "warnings": []
+    }
+  ],
+  "run_dir_count": 26
+}

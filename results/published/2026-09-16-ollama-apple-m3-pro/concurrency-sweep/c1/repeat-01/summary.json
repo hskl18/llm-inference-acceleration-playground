@@ -1,0 +1,162 @@
+{
+  "memory": {
+    "after": {
+      "available": false,
+      "backend": "nvidia-smi",
+      "error": "nvidia-smi not found",
+      "free_mib": null,
+      "gpu_name": null,
+      "total_mib": null,
+      "used_mib": null
+    },
+    "available": false,
+    "before": {
+      "available": false,
+      "backend": "nvidia-smi",
+      "error": "nvidia-smi not found",
+      "free_mib": null,
+      "gpu_name": null,
+      "total_mib": null,
+      "used_mib": null
+    },
+    "delta_used_mib": null
+  },
+  "metadata": {
+    "api_kind": "chat",
+    "backend": "ollama",
+    "backend_version": "0.34.1",
+    "base_url": "http://127.0.0.1:11434/v1",
+    "client_configuration": {
+      "api_kind": "chat",
+      "client_processes": 1,
+      "client_workers": 1,
+      "ignore_eos": false,
+      "queue_delay_warning_ms": 10.0,
+      "request_rate_rps": null,
+      "request_schedule": "closed-loop",
+      "stream": true,
+      "timeout_seconds": 120.0
+    },
+    "client_processes": 1,
+    "client_workers": 1,
+    "concurrency": 1,
+    "cuda_driver_api_version": null,
+    "cuda_version": null,
+    "dtype": "unknown",
+    "endpoint_sha256": "9b514b1a65f6ebfaa4da53a116ea003831b044dc32a989733eace74554ef5b0c",
+    "environment_fingerprint": "6eb461d57f80c37067d29299ff8f6f1c02ef590d344518b4b4466691188ac235",
+    "git_commit": "140f2543bef53d40d0c3ffb3057db1ea01988249",
+    "gpu_driver_version": null,
+    "gpu_name": null,
+    "hardware_label": "apple-m3-pro-18gb",
+    "ignore_eos": false,
+    "input_tokens": 378,
+    "model": "qwen2.5:1.5b-instruct",
+    "model_revision": "65ec06548149b04c096a120e4a6da9d4017ea809c91734ea5631e89f96ddc57b",
+    "operating_system": "macOS-27.0-arm64-arm-64bit",
+    "optimization_profile": "ollama-default",
+    "output_tokens": 64,
+    "project_version": "0.2.0",
+    "prompt_count": 32,
+    "python_version": "3.11.15",
+    "quantization": "Q4_K_M",
+    "queue_delay_warning_ms": 10.0,
+    "request_count": 32,
+    "request_rate_rps": null,
+    "request_schedule": "closed-loop",
+    "requested_input_tokens": 128,
+    "schema_version": "0.2",
+    "server_command_sha256": null,
+    "shared_prefix_fingerprint": "fb4bfe7d6f3ee83a",
+    "shared_prefix_tokens_estimate": 4,
+    "slo": {
+      "tpot_ms": 15.0,
+      "ttft_ms": 1000.0
+    },
+    "stream": true,
+    "timeout_seconds": 120.0,
+    "timestamp": "2026-09-16T21:36:11.324451+00:00",
+    "token_count_method": "server_usage",
+    "tokenizer": null,
+    "tokenizer_revision": null,
+    "torch_version": null,
+    "unique_prompt_count": 32,
+    "warmup_count": 0,
+    "workload_fingerprint": "a684acd81745f1bf",
+    "workload_mode": "fixed_prompts"
+  },
+  "metrics": {
+    "client_load": {
+      "covers_all_client_processes": true,
+      "cpu_cores_used": 0.009673149956115071,
+      "cpu_seconds": 0.301266,
+      "elapsed_seconds": 31.14456008299021
+    },
+    "completed_count": 32,
+    "end_to_end_latency_ms": {
+      "mean": 973.1755089360377,
+      "p50": 926.2737704557367,
+      "p95": 1164.8837288928917,
+      "p99": 1325.186146288761
+    },
+    "error_rate": 0.0,
+    "failed_count": 0,
+    "goodput": {
+      "attainment": 0.9375,
+      "good_output_tokens_per_second": 61.6480051374564,
+      "good_request_count": 30,
+      "good_requests_per_second": 0.9632500802727563,
+      "slo": {
+        "tpot_ms": 15.0,
+        "ttft_ms": 1000.0
+      }
+    },
+    "inter_token_latency_ms": {
+      "max": 87.81029103556648,
+      "mean": 10.987991628430864,
+      "p50": 10.113916505360976,
+      "p95": 15.18503125407733,
+      "p99": 21.937170578166835,
+      "sample_count": 2016
+    },
+    "latency_ms": {
+      "mean": 973.1725219626242,
+      "p50": 926.2704789580312,
+      "p95": 1164.8812473693397,
+      "p99": 1325.184095253353
+    },
+    "output_tokens": 2048,
+    "queue_delay_ms": {
+      "max": 0.014542019926011562,
+      "mean": 0.002986973413499072,
+      "p50": 0.00152099528349936,
+      "p95": 0.009423246956430372,
+      "p99": 0.013999515795148913
+    },
+    "request_count": 32,
+    "throughput": {
+      "estimated_elapsed_seconds": 31.141520702803973,
+      "measured_elapsed_seconds": 31.14456008299021,
+      "output_tokens_per_second": 65.75787214662016,
+      "requests_per_second": 1.02746675229094
+    },
+    "timeout_count": 0,
+    "tpot_ms": {
+      "mean": 10.990627044520807,
+      "p50": 10.267046627141386,
+      "p95": 13.893269802238569,
+      "p99": 16.60127789264412
+    },
+    "ttft_ms": {
+      "mean": 280.76301815781335,
+      "p50": 271.7236670141574,
+      "p95": 318.3698561042547,
+      "p99": 368.1907782086638
+    }
+  },
+  "schema_version": "0.2",
+  "warnings": [
+    "GPU memory telemetry unavailable: nvidia-smi not found.",
+    "Closed-loop scheduling is susceptible to coordinated omission because new requests depend on prior completions."
+  ]
+}
