@@ -1,60 +1,51 @@
 # LLM Inference Acceleration Playground
 
-Open source toolkit for measuring LLM inference-serving latency, throughput, KV cache memory, and acceleration tradeoffs.
+Benchmark an LLM serving endpoint, then prove the number is worth believing.
 
-The project focuses on practical benchmark workflows around OpenAI-compatible serving endpoints.
-The first backend target is vLLM, while the current implementation includes a deterministic `mock://local` path so contributors can run tests and smoke benchmarks without a GPU.
+The tool drives load at any OpenAI-compatible endpoint and records TTFT, inter-token latency, TPOT, throughput, and goodput against a declared SLO.
+What it adds beyond that is an audit trail: every published metric is recomputable from the committed per-request rows, and the same tool refuses to call a run a hardware claim when the evidence does not support one.
 
-## Evidence Status
+## A real result
 
-No real GPU benchmark is checked into this repository yet.
-Current mock runs prove the client, artifact, validation, and reporting workflow only.
-They do not support latency, throughput, memory, quality, or acceleration claims about vLLM or any model.
+On an Apple M3 Pro laptop, Ollama 0.34.1 serving `qwen2.5:1.5b-instruct`, 3 repetitions per point, 95% confidence intervals:
 
-The next hardware experiment is fully specified in [the hardware benchmark runbook](docs/hardware_benchmark_runbook.md).
-It collects three or more repetitions for baseline, prefix-cache, chunked-prefill, quantized, and speculative profiles.
-It records the exact hardware and software environment and blocks publication when required evidence is absent.
+| Concurrency | Output tokens/sec | TTFT p50 | Requests meeting a 1000 ms TTFT and 15 ms TPOT budget |
+| ---: | ---: | ---: | ---: |
+| 1 | 65.7 [60.9, 70.5] | 287 ms | 97% |
+| 2 | 62.9 [47.8, 78.1] | 1266 ms | 3% |
+| 4 | 62.7 [43.1, 82.3] | 3306 ms | 2% |
+| 8 | 61.1 [44.3, 77.9] | 7602 ms | 3% |
 
-## Current Status
+Throughput is flat, so a report that only published tokens per second would have shown four nearly identical numbers.
+Goodput shows what actually happened: this server admits one request at a time, so concurrency buys queueing, and three of the four configurations miss the latency budget for almost every request.
 
-Version 0.2.0 adds measurement-correct experiment orchestration while preserving the deterministic no-GPU workflow:
+In the same study a shared 293-word prompt prefix cut TTFT p50 by 6.6x, from 317 ms to 47.7 ms, while inter-token latency stayed unchanged at 10.4 ms, which is the signature of a prefill saving rather than a faster model.
+Token counts agreed exactly with Ollama's own `eval_count` and `prompt_eval_count` on every cross-checked prompt, and per-token decode cost agreed to within 0.9% and 2.3%.
 
-- Python package scaffold under `src/llm_accel`
-- `llm-accel` CLI
-- mock latency and throughput benchmark path
-- OpenAI-compatible non-streaming and streaming endpoint client
-- closed-loop and deterministic open-loop request scheduling
-- scheduled-arrival, actual-dispatch, client-queue, and end-to-end request timing
-- optional spawned multiprocess load generation
-- YAML/JSON sweep config loading
-- synthetic and fixed-prompt benchmark workloads
-- raw JSONL, summary JSON, and summary Markdown outputs
-- SVG latency plots
-- KV cache estimator
-- backend capability matrix
-- vLLM server command helper
-- optional GPU memory telemetry through `nvidia-smi`
-- quantization comparison workflow
-- fixed-prompt quality sanity checks for quantization comparisons
-- standalone lightweight quality sanity evaluation
-- exact-match, regex, Draft 2020-12 JSON Schema, long-context, and keyword task validators
-- separate task-specification, raw-output, and generated-summary quality artifacts
-- run manifests for generated artifacts
-- run validation and cross-run comparison reports
-- versioned structured optimization profiles with exact command and environment fingerprints
-- randomized, resumable five-profile matrices with three or more repetitions
-- strict and explicitly stratified comparison modes
-- single-run hardware claim audits and matrix-level performance-ranking audits
-- endpoint health checks through `doctor`
-- backend adapter profiles
-- packaged example configs for installed CLI users
-- analytical speculative decoding speedup model with acceptance-curve reports
-- measured speculative acceptance read from a vLLM Prometheus endpoint
-- unit and integration tests
+Full numbers, method, confounds, and limitations: [results/published/2026-09-16-ollama-apple-m3-pro/report.md](results/published/2026-09-16-ollama-apple-m3-pro/report.md).
 
-OpenAI-compatible endpoint calls are implemented with the Python standard library.
-Streaming mode records observed TTFT from server-sent events.
-Non-streaming mode conservatively records TTFT as total request latency.
+This is a local Apple Silicon Ollama measurement.
+It is not a vLLM result and not a GPU result, and the repository's own claim audit rejects it as hardware evidence with 15 blockers, which is the correct outcome.
+
+## How this differs from the established tools
+
+[`vllm bench serve`](https://docs.vllm.ai/en/latest/cli/bench/serve.html), [NVIDIA GenAI-Perf](https://github.com/triton-inference-server/perf_analyzer/blob/main/genai-perf/README.md), and [GuideLLM](https://github.com/vllm-project/guidellm) are mature load generators, and all three shape load better than this project does.
+`vllm bench serve` has Poisson and gamma arrivals, burstiness control, ramp-up strategies, and a wide set of datasets.
+GuideLLM has six load profiles including a sweep that searches for the safe operating range, plus HTML reports.
+GenAI-Perf covers Triton and KServe as well as OpenAI-compatible endpoints, though NVIDIA is phasing it out in favour of AIPerf.
+If the job is to drive load at a vLLM server and read the numbers, use `vllm bench serve`.
+
+This project starts from a different question: not "what number did we get" but "would this number survive someone checking it".
+That leads to work the load generators do not do:
+
+- **The tool audits its own output.** `report claim-audit` refuses to call a run publishable hardware evidence unless the GPU telemetry, the exact serving-command hash, immutable model and tokenizer revisions, server-reported token counts, and the request and warmup minimums are all present. `report ranking-audit` refuses a cross-configuration ranking without three valid repetitions per profile, matching invariants, a passing quality gate, open-loop dispatch evidence, and a client that was not saturated.
+- **Published metrics are recomputed from raw rows.** The audit rebuilds every percentile, throughput figure, inter-token latency distribution, and goodput number from `raw_requests.jsonl` and blocks the run if the summary disagrees.
+- **Comparisons are gated on invariants rather than assumed.** Optimization settings are treatment dimensions; model, tokenizer, prompt set, schedule, client configuration, quality gate, and environment are invariants, and runs that differ in an invariant are put in separate strata instead of being ranked against each other.
+- **Workload identity is recorded.** Every run stores a prompt-set fingerprint, the distinct prompt count, and a shared-prefix estimate, and warns when the measured prompts repeat, because a repeating workload against a caching server measures the cache.
+- **The client is treated as a suspect.** Every run publishes the load generator's own CPU cost and its queue delay, so "the server was slow" can be distinguished from "our benchmark could not keep up".
+
+The honest summary: those tools are better at generating load, this one is stricter about what the resulting number is allowed to claim.
+It is also younger, with one published real result and no GPU measurements yet.
 
 ## Install
 
@@ -64,246 +55,64 @@ python3 -m pip install -e ".[dev]"
 
 ## Quickstart
 
-List and copy packaged example configs:
-
-```bash
-llm-accel examples list
-llm-accel examples write --output-dir configs
-```
-
-Run a local smoke benchmark:
-
-```bash
-llm-accel bench latency \
-  --base-url mock://local \
-  --model mock-model \
-  --api-kind chat \
-  --concurrency 4 \
-  --input-tokens 128 \
-  --output-tokens 64 \
-  --request-count 8 \
-  --hardware-label local-dev \
-  --output-dir results/runs/readme-smoke
-```
-
-If `--output-dir` is omitted, benchmark commands create a timestamped directory under `results/runs/`.
-
-Generated files:
-
-- `manifest.json`
-- `raw_requests.jsonl`
-- `raw_requests.csv`
-- `resolved_config.json`
-- `run_metadata.json`
-- `summary.json`
-- `summary.md`
-- `plots/latency.svg`
-
-Use `--api-kind completion` for OpenAI-compatible `/v1/completions` endpoints instead of chat-completion endpoints.
-
-Run a fixed-prompt benchmark without storing prompt text in result metadata:
-
-```bash
-llm-accel bench latency \
-  --base-url mock://local \
-  --model mock-model \
-  --prompts configs/spec_prompts.jsonl \
-  --request-count 4 \
-  --output-dir results/runs/readme-prompts
-```
-
-Run a config-defined sweep:
-
-```bash
-llm-accel bench sweep --config configs/benchmark_small.yaml
-llm-accel bench sweep --config configs/benchmark_prompts.yaml
-llm-accel bench sweep --config configs/benchmark_prefix_cache.yaml
-```
-
-Run the deterministic five-profile mock matrix:
-
-```bash
-llm-accel bench matrix \
-  --config configs/optimization_matrix_mock.yaml \
-  --output-dir results/runs/mock-optimization-matrix
-```
-
-The matrix covers baseline, prefix cache, chunked prefill, quantized, and speculative treatment profiles in randomized order for three repetitions.
-It checkpoints `matrix_state.json` after every cell and resumes only when the config digest and existing run artifacts remain valid.
-Mock matrix output proves orchestration and evidence gates only.
-It is never model, backend, or hardware performance evidence.
-Real matrices require one explicit, distinct, already-running endpoint URL per profile.
-The tool does not provision hardware, download models, or silently restart serving processes.
-
-Use open-loop arrivals to expose client backlog under offered load:
-
-```bash
-llm-accel bench throughput \
-  --base-url http://localhost:8000/v1 \
-  --backend vllm \
-  --request-schedule open-loop \
-  --request-rate-rps 20 \
-  --concurrency 8 \
-  --client-processes 2 \
-  --queue-delay-warning-ms 10 \
-  --output-dir results/runs/open-loop-example
-```
-
-Closed-loop runs remain useful for bounded-concurrency inspection, but their summaries warn that response-dependent arrivals are susceptible to coordinated omission.
-
-Run a throughput-focused benchmark:
-
-```bash
-llm-accel bench throughput \
-  --base-url mock://local \
-  --model mock-model \
-  --concurrency 4 \
-  --input-tokens 128 \
-  --output-tokens 64 \
-  --request-count 8 \
-  --output-dir results/runs/readme-throughput
-```
-
-Throughput runs preserve the standard raw request artifacts and add `throughput_summary.json` plus `throughput_summary.md`.
-
-Estimate KV cache memory:
-
-```bash
-llm-accel kv-cache estimate \
-  --preset llama-3-8b \
-  --seq-len 8192 \
-  --batch-size 16 \
-  --dtype fp16 \
-  --json
-```
-
-List built-in model-shape presets:
-
-```bash
-llm-accel kv-cache presets
-```
-
-Run the environment check:
+No GPU is required. The `mock://local` backend is deterministic and exercises the whole pipeline.
 
 ```bash
 llm-accel doctor
-```
 
-Run a lightweight quality sanity evaluation:
-
-```bash
-llm-accel eval sanity \
+llm-accel bench throughput \
   --base-url mock://local \
   --model mock-model \
-  --prompts configs/spec_prompts.jsonl \
-  --output-dir results/runs/eval-smoke
+  --concurrency 4 \
+  --output-tokens 64 \
+  --request-count 32 \
+  --slo-ttft-ms 1000 \
+  --slo-tpot-ms 15 \
+  --repeats 3 \
+  --output-dir results/runs/quickstart
+
+llm-accel report validate --run-dir results/runs/quickstart/repeat-01
+llm-accel report claim-audit --run-dir results/runs/quickstart/repeat-01
 ```
 
-Run a validator-based task evaluation:
+The claim audit exits non-zero, on purpose: a mock run is not hardware evidence, and the tool says so rather than letting the number escape.
+
+Against a real endpoint, name the backend and the endpoint instead:
 
 ```bash
-llm-accel eval task \
-  --base-url mock://local \
-  --model mock-model \
-  --tasks configs/task_eval_small.jsonl \
-  --output-dir results/runs/task-eval-smoke
-```
-
-Validate and compare generated runs:
-
-```bash
-llm-accel report generate --run-dir results/runs/readme-smoke
-llm-accel report validate --run-dir results/runs/readme-smoke
-llm-accel report claim-audit --run-dir results/runs/readme-smoke
-llm-accel report ranking-audit --matrix-dir results/runs/mock-optimization-matrix
-llm-accel report compare \
-  --summary results/runs/run-a/summary.json \
-  --summary results/runs/run-b/summary.json \
-  --output-dir results/runs/comparison
-```
-
-Comparison reports include structured blockers, invariant strata, and `ranking_allowed`.
-Optimization settings are treatment dimensions, while model, tokenizer, prompt, schedule, client, quality-gate, and environment evidence remain comparison invariants.
-Relative throughput is computed from the declared baseline aggregate rather than input order.
-The claim audit intentionally rejects this mock smoke run because it is not hardware evidence.
-The ranking audit also rejects the mock matrix, closed-loop coordinated-omission risk, client saturation, missing repetitions, missing quality deltas, and any corrupted source evidence.
-
-Inspect backend capability metadata:
-
-```bash
-llm-accel backend list
-llm-accel backend profile --backend vllm --base-url http://localhost:8000/v1
-```
-
-Generate a vLLM OpenAI-compatible server command:
-
-```bash
-llm-accel vllm command \
-  --model meta-llama/Llama-3.2-1B-Instruct \
-  --dtype auto \
-  --port 8000 \
-  --enable-prefix-caching \
-  --enable-chunked-prefill
-```
-
-The output is a `vllm serve <model>` command line.
-Prefix caching and chunked prefill are always stated explicitly, because vLLM enables both by default, and speculative settings are emitted as one `--speculative-config` JSON object.
-
-Validate vLLM benchmark readiness:
-
-```bash
-llm-accel vllm validate \
-  --model meta-llama/Llama-3.2-1B-Instruct \
-  --revision MODEL_REVISION \
+llm-accel bench throughput \
   --base-url http://localhost:8000/v1 \
-  --output-dir results/runs/vllm-validation
-```
-
-Generate a hardware benchmark runbook:
-
-```bash
-llm-accel vllm plan \
-  --model meta-llama/Llama-3.2-1B-Instruct \
-  --revision MODEL_REVISION \
-  --hardware-label GPU_CLASS \
-  --dtype float16 \
-  --base-url http://localhost:8000/v1 \
-  --output-dir results/runs/vllm-plan
-```
-
-Compare quantization modes, one already-running endpoint per mode:
-
-```bash
-llm-accel quantization compare \
-  --model MODEL_ID \
   --backend vllm \
-  --mode none=http://localhost:8000/v1 \
-  --mode awq=http://localhost:8001/v1 \
-  --output-dir results/runs/quantization-comparison
+  --model MODEL_ID \
+  --tokenizer MODEL_ID \
+  --tokenizer-revision TOKENIZER_REVISION \
+  --request-schedule open-loop \
+  --request-rate-rps 20 \
+  --concurrency 8 \
+  --output-dir results/runs/vllm-run
 ```
 
-A quantization mode is a property of the loaded weights, so two modes may not share one endpoint.
-The first mode is the baseline, and every other mode is scored against it with a temperature-0 exact-match rate plus a perplexity delta where the backend returns prompt logprobs.
-Requested modes are labeled as `supported`, `unsupported`, or `unknown`; unsupported modes are reported but not benchmarked.
+## Documentation
+
+- [Command reference](docs/cli.md)
+- [Feature list](docs/features.md)
+- [Benchmark methodology](docs/benchmark_methodology.md)
+- [Result schemas](docs/result_schemas.md)
+- [Backend capabilities](docs/backend_capabilities.md)
+- [vLLM integration](docs/vllm.md) and the [hardware benchmark runbook](docs/hardware_benchmark_runbook.md)
+- [KV cache](docs/kv_cache.md), [quantization](docs/quantization.md), [speculative decoding](docs/speculative_decoding.md), [quality evaluation](docs/quality_eval.md)
+- [Release process](docs/release.md) and [proposal coverage map](docs/proposal_implementation_audit.md)
 
 ## Development
 
 ```bash
 python3 scripts/release_check.py --metadata-only
-python3 -m pip install -e . --dry-run
-llm-accel --help
 python3 -m ruff check .
 python3 -m pytest
 python3 scripts/smoke.py
 ```
 
-The default test suite does not require a GPU.
+The test suite does not require a GPU.
 
-See [docs/release.md](docs/release.md) for release and benchmark-claim checks.
-See [docs/proposal_implementation_audit.md](docs/proposal_implementation_audit.md) for the current proposal-to-implementation coverage map.
-See [docs/research_optimization_plan.md](docs/research_optimization_plan.md) for research-backed optimization directions.
-See [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md) for contribution, conduct, and security guidance.
-
-## Project Direction
-
-See [proposal.md](proposal.md) for the full product proposal, architecture, benchmark methodology, roadmap, and open source model.
+See [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md).
+[proposal.md](proposal.md) holds the full product proposal and roadmap.

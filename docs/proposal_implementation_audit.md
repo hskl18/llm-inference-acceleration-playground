@@ -22,7 +22,9 @@ It is meant for maintainers and contributors who need to understand which produc
 | vLLM workflow | `vllm serve` command helper with explicit prefix-caching and chunked-prefill flags, `--speculative-config` JSON, validated quantization names, server-side readiness validation through `/version` and `/metrics`, backend profiles, hardware benchmark runbook with latency, throughput, sweep, task-eval, and validation steps | `test_vllm.py`, `test_vllm_validation.py`, `test_vllm_plan.py`, `test_vllm_server.py` |
 | Backend expansion | Capability/profile metadata for vLLM, SGLang, TensorRT-LLM, TGI, and generic OpenAI-compatible endpoints | `test_capabilities.py`, `test_backend_profiles.py` |
 | Installed-package usability | Packaged example configs and prompt/task files exportable with `llm-accel examples write` | `test_cli_examples_write_creates_runnable_configs`, `scripts/smoke.py` |
-| Open source hygiene | README, docs, changelog, release gate, issue-label guidance, no committed benchmark claims | `docs/release.md`, `CONTRIBUTING.md` |
+| Measurement depth | Inter-token latency distribution from stream arrivals, goodput against declared TTFT/TPOT/end-to-end SLOs, `--repeats` and `report repeats` with 95% confidence intervals, client CPU and queue-delay saturation signals | `test_metrics.py`, `test_repeats.py`, `test_claim_audit.py` |
+| Published results | One real measured study, labeled as a local Apple Silicon Ollama result rather than a vLLM or GPU claim, with committed raw rows, validation output, and the claim audit's refusal | `results/published/2026-09-16-ollama-apple-m3-pro/report.md` |
+| Open source hygiene | README, docs, changelog, release gate, issue-label guidance, published results labeled by what they can support | `docs/release.md`, `CONTRIBUTING.md` |
 | Research-backed optimization plan | Prioritized plan for prefix reuse workloads, optimization-profile metadata, high-concurrency fidelity, quality guardrails, and claim auditing | `docs/research_optimization_plan.md` |
 
 ## Product Guarantees
@@ -48,4 +50,5 @@ Real vLLM performance claims still require a machine where:
 - every source run passes `report claim-audit`,
 - the complete bundle passes `report ranking-audit`.
 
-Until those conditions are met, the project should publish workflow examples and schema fixtures only, not hardware benchmark claims.
+Until those conditions are met, the project publishes workflow examples, schema fixtures, and measured results that are explicitly labeled as something other than a hardware claim.
+The Apple Silicon Ollama study under `results/published/` is such a result: it is real and reproducible, and `report claim-audit` rejects it with 15 blockers, which is the outcome the gate is designed to produce.

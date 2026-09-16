@@ -114,7 +114,7 @@ Prompt lengths differ by 3 tokens out of about 376, and each run records `shared
 Token counts agree exactly, in both directions, on every prompt.
 That matters because the tool's token throughput and TPOT are computed from those counts.
 
-Decode cost agrees to within 1% to 2%, with the client always slightly higher.
+Decode cost agrees to within 0.9% and 2.3%, with the client always slightly higher.
 That direction is expected: the client's figure includes server-sent-event framing and parsing that `eval_duration` does not, and 0.06 to 0.14 ms per token is a plausible size for it.
 
 Prefill agrees at the arm level.
