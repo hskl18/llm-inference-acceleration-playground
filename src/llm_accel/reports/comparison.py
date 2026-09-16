@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from pathlib import Path
-from statistics import mean, pstdev
 from typing import Mapping
 
+from llm_accel.metrics.aggregation import distribution
 from llm_accel.metrics.environment import (
     ENVIRONMENT_FINGERPRINT_FIELDS,
     environment_fingerprint,
@@ -428,8 +428,8 @@ def _build_stratum(
                 "repetitions": len(profile_rows),
                 "valid_repetitions": len(valid_rows),
                 "invalid_repetitions": invalid_count,
-                "output_tokens_per_second": _distribution(throughput) if throughput else None,
-                "latency_p95_ms": _distribution(latency) if latency else None,
+                "output_tokens_per_second": distribution(throughput) if throughput else None,
+                "latency_p95_ms": distribution(latency) if latency else None,
                 "relative_to_baseline": None,
             }
         )
@@ -459,9 +459,11 @@ def _build_stratum(
             )
         else:
             for aggregate in aggregates:
-                distribution = aggregate["output_tokens_per_second"]
-                if isinstance(distribution, dict):
-                    aggregate["relative_to_baseline"] = float(distribution["mean"]) / baseline_mean
+                throughput_distribution = aggregate["output_tokens_per_second"]
+                if isinstance(throughput_distribution, dict):
+                    aggregate["relative_to_baseline"] = (
+                        float(throughput_distribution["mean"]) / baseline_mean
+                    )
 
     aggregates.sort(
         key=lambda aggregate: (
@@ -517,15 +519,6 @@ def _differing_invariant_fields(rows: list[dict[str, object]]) -> list[str]:
     ]
 
 
-def _distribution(values: list[float]) -> dict[str, float]:
-    return {
-        "mean": mean(values),
-        "stddev": pstdev(values),
-        "min": min(values),
-        "max": max(values),
-    }
-
-
 def _write_markdown(path: Path, report: dict[str, object]) -> None:
     blockers = report.get("blockers", [])
     warnings = report.get("warnings", [])
@@ -558,8 +551,8 @@ def _write_markdown(path: Path, report: dict[str, object]) -> None:
                 f"- Invariant fingerprint: `{stratum['invariant_fingerprint']}`",
                 f"- Ranking allowed: `{stratum['ranking_allowed']}`",
                 "",
-                "| Profile | Valid repetitions | Total repetitions | Mean output tokens/sec | Relative to baseline | Mean p95 latency ms |",
-                "| --- | ---: | ---: | ---: | ---: | ---: |",
+                "| Profile | Valid repetitions | Total repetitions | Mean output tokens/sec | 95% CI | Relative to baseline | Mean p95 latency ms |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
             ]
         )
         for aggregate in stratum["profile_aggregates"]:
@@ -567,9 +560,14 @@ def _write_markdown(path: Path, report: dict[str, object]) -> None:
             latency = aggregate["latency_p95_ms"] or {}
             relative = aggregate["relative_to_baseline"]
             relative_text = f"{relative:.3f}" if isinstance(relative, (int, float)) else "n/a"
+            interval = (
+                f"[{throughput['ci95_low']:.3f}, {throughput['ci95_high']:.3f}]"
+                if "ci95_low" in throughput
+                else "n/a"
+            )
             lines.append(
                 f"| `{aggregate['optimization_profile']}` | {aggregate['valid_repetitions']} | "
-                f"{aggregate['repetitions']} | {throughput.get('mean', 0.0):.3f} | "
+                f"{aggregate['repetitions']} | {throughput.get('mean', 0.0):.3f} | {interval} | "
                 f"{relative_text} | {latency.get('mean', 0.0):.3f} |"
             )
         if stratum["blockers"]:

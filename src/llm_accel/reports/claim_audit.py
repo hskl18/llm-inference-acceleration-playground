@@ -196,6 +196,20 @@ def audit_hardware_claim(run_dir: str | Path) -> dict[str, object]:
             if not _finite_non_negative(queue_delay.get(percentile_name)):
                 blockers.append(f"metrics.queue_delay_ms.{percentile_name} must be finite and non-negative")
 
+    itl = metrics.get("inter_token_latency_ms")
+    if not isinstance(itl, dict):
+        blockers.append("metrics.inter_token_latency_ms is missing")
+    else:
+        for percentile_name in ["p50", "p95", "p99", "max"]:
+            if not _finite_non_negative(itl.get(percentile_name)):
+                blockers.append(
+                    f"metrics.inter_token_latency_ms.{percentile_name} must be finite and non-negative"
+                )
+        if not isinstance(itl.get("sample_count"), int) or int(itl.get("sample_count", 0)) <= 0:
+            blockers.append(
+                "no inter-token latency samples were recorded; stream the run to measure the decode phase"
+            )
+
     raw_result = _read_raw_requests(raw_path)
     if raw_result is None:
         blockers.append("raw_requests.jsonl is required")
@@ -499,13 +513,15 @@ def _validate_raw_requests(
                 break
     if output_tokens != metrics.get("output_tokens"):
         blockers.append("raw completed output tokens do not match summary metrics")
-    _validate_recomputed_metrics(rows, metrics, blockers)
+    # The declared SLO is part of the run record, so goodput is recomputed against it.
+    _validate_recomputed_metrics(rows, metrics, blockers, slo=metadata.get("slo"))
 
 
 def _validate_recomputed_metrics(
     rows: list[dict[str, object]],
     metrics: dict[str, object],
     blockers: list[str],
+    slo: object = None,
 ) -> None:
     try:
         records = [
@@ -527,6 +543,9 @@ def _validate_recomputed_metrics(
                 dispatch_offset_ms=float(row["dispatch_offset_ms"]),
                 queue_delay_ms=float(row["queue_delay_ms"]),
                 end_to_end_latency_ms=float(row["end_to_end_latency_ms"]),
+                inter_token_latencies_ms=tuple(
+                    float(gap) for gap in row.get("inter_token_latencies_ms", ())
+                ),
             )
             for row in rows
         ]
@@ -534,7 +553,11 @@ def _validate_recomputed_metrics(
         blockers.append(f"raw requests cannot reproduce summary metrics: {exc}")
         return
     elapsed_seconds = _raw_span_seconds(records)
-    recomputed = summarize_requests(records, elapsed_seconds=elapsed_seconds)
+    try:
+        recomputed = summarize_requests(records, elapsed_seconds=elapsed_seconds, slo=slo)
+    except (TypeError, ValueError) as exc:
+        blockers.append(f"recorded SLO thresholds are invalid: {exc}")
+        return
     paths = [
         ("request_count",),
         ("completed_count",),
@@ -567,7 +590,22 @@ def _validate_recomputed_metrics(
         ("end_to_end_latency_ms", "p50"),
         ("end_to_end_latency_ms", "p95"),
         ("end_to_end_latency_ms", "p99"),
+        ("inter_token_latency_ms", "sample_count"),
+        ("inter_token_latency_ms", "mean"),
+        ("inter_token_latency_ms", "p50"),
+        ("inter_token_latency_ms", "p95"),
+        ("inter_token_latency_ms", "p99"),
+        ("inter_token_latency_ms", "max"),
     ]
+    if isinstance(_nested(recomputed, ("goodput",)), dict):
+        paths.extend(
+            [
+                ("goodput", "good_request_count"),
+                ("goodput", "attainment"),
+                ("goodput", "good_requests_per_second"),
+                ("goodput", "good_output_tokens_per_second"),
+            ]
+        )
     for path in paths:
         expected = _nested(recomputed, path)
         actual = _nested(metrics, path)

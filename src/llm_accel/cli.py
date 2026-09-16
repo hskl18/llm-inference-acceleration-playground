@@ -9,6 +9,7 @@ from pathlib import Path
 from llm_accel import __version__
 from llm_accel.benchmarks.latency import run_latency_benchmark
 from llm_accel.benchmarks.matrix import run_matrix
+from llm_accel.benchmarks.repeats import run_repeated_benchmark
 from llm_accel.benchmarks.sweep import run_sweep
 from llm_accel.benchmarks.throughput import run_throughput_benchmark
 from llm_accel.config.loader import ConfigError
@@ -84,6 +85,19 @@ def _add_bench_common(parser: argparse.ArgumentParser) -> None:
         type=float,
         default=10.0,
         help="Warn when client queue delay p95 exceeds this threshold",
+    )
+    parser.add_argument(
+        "--repeats",
+        type=int,
+        default=1,
+        help="Repeat the whole run this many times and report means with 95%% confidence intervals",
+    )
+    parser.add_argument("--slo-ttft-ms", type=float, help="Goodput SLO: maximum time to first token")
+    parser.add_argument("--slo-tpot-ms", type=float, help="Goodput SLO: maximum mean time per output token")
+    parser.add_argument(
+        "--slo-e2e-ms",
+        type=float,
+        help="Goodput SLO: maximum end-to-end latency from scheduled arrival to completion",
     )
 
 
@@ -355,16 +369,48 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0
 
 
+def _bench_slo(args: argparse.Namespace) -> dict[str, float] | None:
+    declared = {
+        "ttft_ms": args.slo_ttft_ms,
+        "tpot_ms": args.slo_tpot_ms,
+        "end_to_end_latency_ms": args.slo_e2e_ms,
+    }
+    return {key: float(value) for key, value in declared.items() if value is not None} or None
+
+
+def _run_bench(
+    runner: object,
+    args: argparse.Namespace,
+    output_dir: str,
+    **benchmark_kwargs: object,
+) -> dict[str, object] | None:
+    """Run once into output_dir, or repeat into numbered subdirectories and aggregate."""
+    if args.repeats < 1:
+        raise ValueError("--repeats must be at least 1")
+    if args.repeats == 1:
+        return runner(output_dir=output_dir, **benchmark_kwargs)
+    aggregate = run_repeated_benchmark(
+        runner,
+        repeats=args.repeats,
+        output_dir=output_dir,
+        **benchmark_kwargs,
+    )
+    print(json.dumps({"output_dir": output_dir, "repeats": aggregate["repeats"], "metrics": aggregate["metrics"]}, indent=2, sort_keys=True))
+    return None
+
+
 def cmd_bench_latency(args: argparse.Namespace) -> int:
     output_dir = args.output_dir or _default_run_dir(args.bench_command)
     prompt_texts = load_prompt_file(args.prompts) if args.prompts else None
-    summary = run_latency_benchmark(
+    summary = _run_bench(
+        run_latency_benchmark,
+        args,
+        output_dir,
         base_url=args.base_url,
         model=args.model,
         concurrency=args.concurrency,
         input_tokens=args.input_tokens,
         output_tokens=args.output_tokens,
-        output_dir=output_dir,
         request_count=args.request_count,
         warmup_count=args.warmup_count,
         timeout_seconds=args.timeout_seconds,
@@ -386,22 +432,26 @@ def cmd_bench_latency(args: argparse.Namespace) -> int:
         client_processes=args.client_processes,
         queue_delay_warning_ms=args.queue_delay_warning_ms,
         ignore_eos=args.ignore_eos,
+        slo=_bench_slo(args),
         api_key_env=args.api_key_env,
     )
-    print(json.dumps({"output_dir": output_dir, "metrics": summary["metrics"]}, indent=2, sort_keys=True))
+    if summary is not None:
+        print(json.dumps({"output_dir": output_dir, "metrics": summary["metrics"]}, indent=2, sort_keys=True))
     return 0
 
 
 def cmd_bench_throughput(args: argparse.Namespace) -> int:
     output_dir = args.output_dir or _default_run_dir(args.bench_command)
     prompt_texts = load_prompt_file(args.prompts) if args.prompts else None
-    summary = run_throughput_benchmark(
+    summary = _run_bench(
+        run_throughput_benchmark,
+        args,
+        output_dir,
         base_url=args.base_url,
         model=args.model,
         concurrency=args.concurrency,
         input_tokens=args.input_tokens,
         output_tokens=args.output_tokens,
-        output_dir=output_dir,
         request_count=args.request_count,
         warmup_count=args.warmup_count,
         timeout_seconds=args.timeout_seconds,
@@ -423,9 +473,11 @@ def cmd_bench_throughput(args: argparse.Namespace) -> int:
         client_processes=args.client_processes,
         queue_delay_warning_ms=args.queue_delay_warning_ms,
         ignore_eos=args.ignore_eos,
+        slo=_bench_slo(args),
         api_key_env=args.api_key_env,
     )
-    print(json.dumps({"output_dir": output_dir, "throughput": summary["metrics"]["throughput"]}, indent=2, sort_keys=True))
+    if summary is not None:
+        print(json.dumps({"output_dir": output_dir, "throughput": summary["metrics"]["throughput"]}, indent=2, sort_keys=True))
     return 0
 
 

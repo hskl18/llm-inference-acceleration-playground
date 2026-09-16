@@ -118,7 +118,9 @@ def write_request_csv(path: Path, records: Iterable[RequestMetrics]) -> None:
         "end_to_end_latency_ms",
     ]
     with _atomic_text_writer(path, newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        # The CSV is the flat scalar view; variable-length fields such as the per-request
+        # inter-token latency samples stay in raw_requests.jsonl.
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         for record in records:
             writer.writerow(record.to_dict())

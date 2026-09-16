@@ -31,10 +31,16 @@ Current named backends:
 | `sglang` | OpenAI-compatible HTTP | radix cache, continuous batching, speculative decoding, structured outputs |
 | `tensorrt-llm` | OpenAI-compatible HTTP | in-flight batching, paged KV cache, KV cache reuse, speculative decoding |
 | `tgi` | OpenAI-compatible HTTP | continuous batching |
+| `ollama` | OpenAI-compatible HTTP under `/v1` | prompt prefix cache |
 | `openai-compatible` | OpenAI-compatible HTTP | unknown server-side capabilities |
 
 `backend profile` reports `backend_version` together with `backend_version_source`.
-For a vLLM endpoint it asks the server's `GET /version` first and only falls back to the client's installed package, because the benchmark client is usually not the serving host.
+For a vLLM endpoint it asks the server's `GET /version` first, for Ollama it asks `GET /api/version`, and it only falls back to the client's installed package, because the benchmark client is usually not the serving host.
+
+Ollama accepts the OpenAI request body but silently ignores `ignore_eos` and `min_tokens`, so output length cannot be forced there.
+Choose a `--output-tokens` budget the model will always reach and confirm afterwards that every completed request returned the same output token count.
+It does return streaming usage when asked for `stream_options.include_usage`, so token counts come from the server rather than a whitespace estimate.
+It exposes no NVIDIA telemetry, so GPU memory stays unavailable and the hardware claim audit correctly refuses to treat an Ollama run as GPU evidence.
 
 `llm-accel doctor --backend vllm` also includes optional GPU memory telemetry. Missing `nvidia-smi` is reported as unavailable, not as a test failure.
 

@@ -320,3 +320,69 @@ def test_claim_audit_warns_when_vllm_output_length_was_not_fixed(tmp_path) -> No
     report = audit_hardware_claim(tmp_path)
 
     assert any("ignore_eos" in warning for warning in report["warnings"])
+
+
+def test_claim_audit_recomputes_inter_token_latency_from_raw_requests(tmp_path) -> None:
+    run_latency_benchmark(
+        base_url="mock://local",
+        model="mock-model",
+        concurrency=1,
+        input_tokens=16,
+        output_tokens=8,
+        output_dir=tmp_path,
+        request_count=2,
+    )
+    summary_path = tmp_path / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["metrics"]["inter_token_latency_ms"]["sample_count"] == 2 * 7
+    summary["metrics"]["inter_token_latency_ms"]["p95"] += 5.0
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    report = audit_hardware_claim(tmp_path)
+
+    assert any(
+        "summary metric inter_token_latency_ms.p95 does not match raw requests" in blocker
+        for blocker in report["blockers"]
+    )
+
+
+def test_claim_audit_recomputes_goodput_against_the_recorded_slo(tmp_path) -> None:
+    run_latency_benchmark(
+        base_url="mock://local",
+        model="mock-model",
+        concurrency=1,
+        input_tokens=16,
+        output_tokens=8,
+        output_dir=tmp_path,
+        request_count=2,
+        slo={"ttft_ms": 1000.0},
+    )
+    summary_path = tmp_path / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["metrics"]["goodput"]["good_request_count"] == 2
+    summary["metrics"]["goodput"]["good_request_count"] = 1
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    report = audit_hardware_claim(tmp_path)
+
+    assert any(
+        "summary metric goodput.good_request_count does not match raw requests" in blocker
+        for blocker in report["blockers"]
+    )
+
+
+def test_claim_audit_blocks_a_run_with_no_inter_token_latency_samples(tmp_path) -> None:
+    run_latency_benchmark(
+        base_url="mock://local",
+        model="mock-model",
+        concurrency=1,
+        input_tokens=16,
+        output_tokens=8,
+        output_dir=tmp_path,
+        request_count=2,
+        stream=False,
+    )
+
+    report = audit_hardware_claim(tmp_path)
+
+    assert any("no inter-token latency samples" in blocker for blocker in report["blockers"])

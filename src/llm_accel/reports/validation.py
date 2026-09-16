@@ -51,7 +51,16 @@ def _validate_summary(path: Path, errors: list[str], warnings: list[str]) -> Non
     if summary.get("schema_version") != SCHEMA_VERSION:
         warnings.append(f"summary schema version mismatch: {summary.get('schema_version')}")
     metrics = summary.get("metrics", {})
-    for key in ["request_count", "completed_count", "failed_count", "timeout_count", "latency_ms", "throughput"]:
+    for key in [
+        "request_count",
+        "completed_count",
+        "failed_count",
+        "timeout_count",
+        "latency_ms",
+        "inter_token_latency_ms",
+        "goodput",
+        "throughput",
+    ]:
         if key not in metrics:
             errors.append(f"summary.metrics missing {key}")
     metadata = summary.get("metadata", {})
@@ -73,6 +82,7 @@ def _validate_aggregate(path: Path, errors: list[str]) -> None:
 def _validate_optional_artifacts(run_dir: Path, errors: list[str], warnings: list[str]) -> None:
     validators = {
         "throughput_summary.json": _validate_throughput_summary,
+        "repeats_summary.json": _validate_repeats_summary,
         "quality_eval.json": _validate_quality_eval,
         "task_eval.json": _validate_task_eval,
         "quantization_comparison.json": _validate_quantization_comparison,
@@ -107,6 +117,40 @@ def _validate_throughput_summary(path: Path, errors: list[str], warnings: list[s
             if key not in throughput:
                 errors.append(f"{path.name}.throughput missing {key}")
     _require_list(path.name, payload.get("warnings"), "warnings", errors)
+    if payload.get("schema_version") != SCHEMA_VERSION:
+        warnings.append(f"{path.name} schema version mismatch: {payload.get('schema_version')}")
+
+
+def _validate_repeats_summary(path: Path, errors: list[str], warnings: list[str]) -> None:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    _require_keys(
+        path.name,
+        payload,
+        ["schema_version", "repeats", "repeat_dirs", "metadata", "metrics", "failed_request_count", "warnings", "notes"],
+        errors,
+    )
+    _require_mapping(path.name, payload.get("metadata"), "metadata", errors)
+    _require_mapping(path.name, payload.get("metrics"), "metrics", errors)
+    _require_list(path.name, payload.get("repeat_dirs"), "repeat_dirs", errors)
+    _require_list(path.name, payload.get("warnings"), "warnings", errors)
+    repeat_dirs = payload.get("repeat_dirs")
+    if isinstance(repeat_dirs, list):
+        if payload.get("repeats") != len(repeat_dirs):
+            errors.append(f"{path.name} repeats does not match repeat_dirs length")
+        for repeat_dir in repeat_dirs:
+            if not (path.parent / str(repeat_dir) / "summary.json").exists():
+                errors.append(f"{path.name} references missing repetition {repeat_dir}")
+    metrics = payload.get("metrics")
+    if isinstance(metrics, dict):
+        for name, stats in metrics.items():
+            if not isinstance(stats, dict):
+                errors.append(f"{path.name}.metrics.{name} must be an object")
+                continue
+            for key in ["count", "mean", "sample_stddev", "min", "max", "ci95_low", "ci95_high"]:
+                if key not in stats:
+                    errors.append(f"{path.name}.metrics.{name} missing {key}")
+            if stats.get("count") != payload.get("repeats"):
+                errors.append(f"{path.name}.metrics.{name} does not aggregate every repetition")
     if payload.get("schema_version") != SCHEMA_VERSION:
         warnings.append(f"{path.name} schema version mismatch: {payload.get('schema_version')}")
 
