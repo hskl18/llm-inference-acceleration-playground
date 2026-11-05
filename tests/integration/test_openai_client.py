@@ -83,6 +83,7 @@ class _NullRoleChunkHandler(BaseHTTPRequestHandler):
 
     reasoning_chunks: list[str] = []
     send_usage: bool = True
+    non_stream_content: str | None = None
     payloads: list[dict[str, object]] = []
     headers_seen: list[dict[str, str]] = []
 
@@ -93,8 +94,8 @@ class _NullRoleChunkHandler(BaseHTTPRequestHandler):
         self.headers_seen.append(dict(self.headers.items()))
         if not payload.get("stream"):
             body = {
-                "choices": [{"message": {"role": "assistant", "content": None}}],
-                "usage": {"prompt_tokens": 37, "completion_tokens": 0},
+                "choices": [{"message": {"role": "assistant", "content": self.non_stream_content}}],
+                "usage": {"prompt_tokens": 37, "completion_tokens": 2 if self.non_stream_content else 0},
             }
             encoded = json.dumps(body).encode("utf-8")
             self.send_response(200)
@@ -137,9 +138,11 @@ class _NullRoleChunkHandler(BaseHTTPRequestHandler):
 def _start_null_role_server(
     reasoning_chunks: list[str] | None = None,
     send_usage: bool = True,
+    non_stream_content: str | None = None,
 ) -> tuple[ThreadingHTTPServer, str]:
     _NullRoleChunkHandler.reasoning_chunks = reasoning_chunks or []
     _NullRoleChunkHandler.send_usage = send_usage
+    _NullRoleChunkHandler.non_stream_content = non_stream_content
     _NullRoleChunkHandler.payloads = []
     _NullRoleChunkHandler.headers_seen = []
     server = ThreadingHTTPServer(("127.0.0.1", 0), _NullRoleChunkHandler)
@@ -193,15 +196,14 @@ def test_choice_text_treats_null_fields_as_empty(api_kind, stream, choice, expec
     assert client._choice_text(choice, stream=stream) == expected
 
 
-def test_non_streaming_null_message_content_is_empty_text() -> None:
+def test_non_streaming_null_message_content_is_a_failed_request() -> None:
     server, base_url = _start_null_role_server()
     try:
         client = OpenAICompatibleClient(base_url=base_url, model="mock")
-        result = client.complete("hello", max_tokens=10, stream=False)
+        with pytest.raises(RuntimeError, match="no generated text"):
+            client.complete("hello", max_tokens=10, stream=False)
     finally:
         server.shutdown()
-
-    assert result.output_text == ""
 
 
 def test_vllm_benchmark_counts_null_role_stream_without_none_text(monkeypatch, tmp_path) -> None:
@@ -875,7 +877,7 @@ def test_streaming_records_one_inter_token_gap_per_content_chunk_boundary() -> N
 
 
 def test_non_streaming_calls_record_no_inter_token_gaps() -> None:
-    server, base_url = _start_null_role_server()
+    server, base_url = _start_null_role_server(non_stream_content="hello world")
     try:
         client = OpenAICompatibleClient(base_url=base_url, model="mock")
         result = client.complete("hello", max_tokens=10, stream=False)

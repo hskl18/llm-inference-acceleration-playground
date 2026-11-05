@@ -15,6 +15,8 @@ from llm_accel.metrics.token_counting import (
 
 
 DEFAULT_API_KEY_ENV = "OPENAI_API_KEY"
+# Reasons a backend reports for output it did not finish; SGLang sends "abort" with no error object.
+FAILED_FINISH_REASONS = {"abort", "aborted", "cancelled", "canceled", "error"}
 
 
 def bearer_auth_header(api_key_env: str = DEFAULT_API_KEY_ENV) -> dict[str, str]:
@@ -161,7 +163,15 @@ class OpenAICompatibleClient:
         with request.urlopen(req, timeout=self.request_timeout_seconds) as response:
             body = json.loads(response.read().decode("utf-8"))
         total_latency_ms = (time.perf_counter() - started) * 1000
-        content, reasoning = self._choice_text(body["choices"][0], stream=False)
+        response_error = _response_error(body)
+        if response_error:
+            raise RuntimeError(f"response returned an error: {response_error}")
+        choice = body["choices"][0]
+        if isinstance(choice, dict) and choice.get("finish_reason") in FAILED_FINISH_REASONS:
+            raise RuntimeError(f"response returned finish_reason={choice['finish_reason']}")
+        content, reasoning = self._choice_text(choice, stream=False)
+        if not content and not reasoning:
+            raise RuntimeError("response contained no generated text")
         usage = body.get("usage", {})
         output_tokens, input_tokens, method = self._token_counts(prompt, content, usage, reasoning)
         # Non-streaming calls cannot observe real TTFT, so keep this conservative.
@@ -192,6 +202,7 @@ class OpenAICompatibleClient:
         chunks: list[str] = []
         reasoning_chunks: list[str] = []
         usage: dict[str, object] = {}
+        terminated = False
         with request.urlopen(req, timeout=self.request_timeout_seconds) as response:
             for raw_line in response:
                 line = raw_line.decode("utf-8").strip()
@@ -199,16 +210,24 @@ class OpenAICompatibleClient:
                     continue
                 data = line.removeprefix("data:").strip()
                 if data == "[DONE]":
+                    terminated = True
                     break
                 try:
                     event = json.loads(data)
                 except json.JSONDecodeError:
                     continue
+                stream_error = _response_error(event)
+                if stream_error:
+                    raise RuntimeError(f"stream returned an error: {stream_error}")
                 event_usage = event.get("usage")
                 if isinstance(event_usage, dict):
                     usage = event_usage
                 choices = event.get("choices", [{}])
                 choice = choices[0] if isinstance(choices, list) and choices else {}
+                finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
+                if finish_reason in FAILED_FINISH_REASONS:
+                    raise RuntimeError(f"stream returned finish_reason={finish_reason}")
+                terminated = terminated or bool(finish_reason)
                 content, reasoning = self._choice_text(choice, stream=True)
                 if content or reasoning:
                     arrived_at = time.perf_counter()
@@ -220,11 +239,16 @@ class OpenAICompatibleClient:
                 chunks.append(content)
                 reasoning_chunks.append(reasoning)
 
+        # A clean socket close looks like success to urllib, so the stream has to prove it finished.
+        if not terminated:
+            raise RuntimeError("stream ended without a finish_reason or [DONE]")
+        if first_token_at is None:
+            raise RuntimeError("stream finished without generating any text")
         completed_at = time.perf_counter()
         output_text = "".join(chunks)
         reasoning_text = "".join(reasoning_chunks)
         output_tokens, input_tokens, method = self._token_counts(prompt, output_text, usage, reasoning_text)
-        ttft_ms = ((first_token_at or completed_at) - started) * 1000
+        ttft_ms = (first_token_at - started) * 1000
         total_latency_ms = (completed_at - started) * 1000
         return CompletionResult(
             output_text=output_text,
@@ -320,6 +344,17 @@ class OpenAICompatibleClient:
 
 def count_generated_tokens(counter: TokenCounter, output_text: str, reasoning_text: str = "") -> int:
     return counter.count(output_text) + (counter.count(reasoning_text) if reasoning_text else 0)
+
+
+def _response_error(event: dict[str, object]) -> str | None:
+    """Return the message of an error payload; backends can send one with HTTP 200."""
+    error = event.get("error")
+    if error:
+        message = error.get("message") if isinstance(error, dict) else error
+        return str(message or error)
+    if event.get("object") == "error":
+        return str(event.get("message") or event)
+    return None
 
 
 def _text(value: object) -> str:
