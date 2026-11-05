@@ -38,8 +38,10 @@ See the [full comparison](https://github.com/hskl18/llm-inference-acceleration-p
 ## Install
 
 ```bash
-python3 -m pip install -e ".[dev]"
+python3 -m pip install llm-accel
 ```
+
+It needs Python 3.11 or newer.
 
 ## Quickstart
 
@@ -95,6 +97,7 @@ llm-accel bench throughput \
 ## Development
 
 ```bash
+python3 -m pip install -e ".[dev]"
 python3 scripts/release_check.py --metadata-only
 python3 -m ruff check .
 python3 -m pytest
@@ -102,6 +105,7 @@ python3 scripts/smoke.py
 ```
 
 The test suite does not require a GPU.
+CI runs the tests and a package build on Python 3.14, so run the other checks locally.
 
 See [CONTRIBUTING.md](https://github.com/hskl18/llm-inference-acceleration-playground/blob/main/CONTRIBUTING.md), [CODE_OF_CONDUCT.md](https://github.com/hskl18/llm-inference-acceleration-playground/blob/main/CODE_OF_CONDUCT.md), and [SECURITY.md](https://github.com/hskl18/llm-inference-acceleration-playground/blob/main/SECURITY.md).
 [proposal.md](https://github.com/hskl18/llm-inference-acceleration-playground/blob/main/proposal.md) holds the full product proposal and roadmap.

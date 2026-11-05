@@ -198,7 +198,7 @@ llm-inference-acceleration-playground/
 
 ### Packaging and Dependency Strategy
 
-The project should use a standard Python package layout with `src/llm_accel`. The first implementation should target Python 3.10 or newer.
+The project should use a standard Python package layout with `src/llm_accel`. The first implementation should target Python 3.11 or newer.
 
 Recommended dependency groups:
 
@@ -211,13 +211,13 @@ Recommended dependency groups:
 The default installation should stay lightweight:
 
 ```bash
-pip install llm-inference-acceleration-playground
+pip install llm-accel
 ```
 
 Optional extras can be added later:
 
 ```bash
-pip install "llm-inference-acceleration-playground[plot,dev]"
+pip install "llm-accel[plot,dev]"
 ```
 
 ## 8. Configuration Model
