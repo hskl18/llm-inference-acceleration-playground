@@ -24,7 +24,7 @@ It is meant for maintainers and contributors who need to understand which produc
 | Installed-package usability | Packaged example configs and prompt/task files exportable with `llm-accel examples write` | `test_cli_examples_write_creates_runnable_configs`, `scripts/smoke.py` |
 | Measurement depth | Inter-token latency distribution from stream arrivals, goodput against declared TTFT/TPOT/end-to-end SLOs, `--repeats` and `report repeats` with 95% confidence intervals, client CPU and queue-delay saturation signals | `test_metrics.py`, `test_repeats.py`, `test_claim_audit.py` |
 | Published results | One real measured study, labeled as a local Apple Silicon Ollama result rather than a vLLM or GPU claim, with committed raw rows, validation output, and the claim audit's refusal | `results/published/2026-09-16-ollama-apple-m3-pro/report.md` |
-| Open source hygiene | README, docs, changelog, release gate, issue-label guidance, published results labeled by what they can support | `docs/release.md`, `CONTRIBUTING.md` |
+| Open source hygiene | README, docs, release gate, issue-label guidance, published results labeled by what they can support | `docs/release.md`, `CONTRIBUTING.md` |
 | Research-backed optimization plan | Prioritized plan for prefix reuse workloads, optimization-profile metadata, high-concurrency fidelity, quality guardrails, and claim auditing | `docs/research_optimization_plan.md` |
 
 ## Product Guarantees

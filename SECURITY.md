@@ -4,7 +4,7 @@ This project is a local-first benchmark toolkit. It should not upload prompts, A
 
 ## Reporting a Security Issue
 
-If you find a security issue, open a private security advisory if the hosting platform supports it. If private advisories are unavailable, contact the maintainer before filing a public issue with exploit details.
+Report security issues privately through [GitHub private vulnerability reporting](https://github.com/hskl18/llm-inference-acceleration-playground/security/advisories/new).
 
 Useful reports include:
 
@@ -23,4 +23,4 @@ Useful reports include:
 
 ## Supported Versions
 
-The project is pre-release. Security fixes target the current main development line until versioned releases are published.
+Security fixes target the latest release.

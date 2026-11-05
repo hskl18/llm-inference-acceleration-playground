@@ -1,7 +1,7 @@
 # Release Process
 
-This project is currently pre-release.
 Use `0.x` versions until the CLI and result schemas are stable.
+GitHub Releases are the changelog.
 
 ## Local Release Checklist
 
@@ -68,7 +68,7 @@ python -m pip install -e .
 9. Confirm `llm-accel --version` prints the intended version.
 10. Confirm no mock measurement is described as model, backend, or hardware performance.
 11. Confirm no tag or GitHub Release exists for an unmerged release pull request.
-12. Review the generated changelog through the repository's release workflow rather than editing `CHANGELOG.md` manually.
+12. Write the release notes in the GitHub Release.
 13. Remove build directories, editable-install metadata, test caches, generated smoke runs, and temporary result bundles when they are safe to delete.
 14. Tag only after validation passes and the release owner separately authorizes a release.
 
