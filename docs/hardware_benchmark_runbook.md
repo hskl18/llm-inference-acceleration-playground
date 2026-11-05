@@ -1,7 +1,7 @@
 # Hardware Benchmark Runbook
 
 This runbook describes the evidence required for a real vLLM optimization matrix on an NVIDIA GPU host.
-The repository does not include a real GPU result as of version 0.2.0.
+The repository does not include a real GPU result.
 Mock results validate the workflow and evidence gates only.
 
 Run from a source checkout: `report claim-audit` requires the benchmark code commit, which an installed package cannot report.

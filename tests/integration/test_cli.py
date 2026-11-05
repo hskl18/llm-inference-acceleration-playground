@@ -22,7 +22,7 @@ def test_cli_version_uses_authoritative_version(capsys) -> None:
     with pytest.raises(SystemExit, match="0"):
         main(["--version"])
 
-    assert capsys.readouterr().out == "llm-accel 0.2.0\n"
+    assert capsys.readouterr().out == "llm-accel 0.2.1\n"
 
 
 def test_cli_kv_cache_json(capsys) -> None:
