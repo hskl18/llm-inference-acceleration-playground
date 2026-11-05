@@ -11,18 +11,6 @@ Good first contribution areas:
 - improve mock endpoint behavior
 - add tests for config validation or result schemas
 
-Suggested issue labels:
-
-- `backend`
-- `benchmark`
-- `documentation`
-- `good first issue`
-- `kv-cache`
-- `metrics`
-- `quantization`
-- `speculative-decoding`
-- `testing`
-
 ## Development Setup
 
 ```bash
@@ -42,6 +30,11 @@ Before proposing a substantial change, make sure:
 - result schema changes include fixture updates
 - benchmark output does not fabricate hardware performance
 - secrets are not written to result files
+
+## AI Assistance
+
+AI tools are welcome.
+Say in the pull request that you used one, run the change yourself, and be ready to explain every line.
 
 ## Conduct and Security
 

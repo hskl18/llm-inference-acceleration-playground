@@ -465,7 +465,7 @@ Required docs:
 - `docs/speculative_decoding.md`: toy algorithm, acceptance rate, and limitations.
 - `docs/methods/*.md`: concise notes for FlashAttention, Medusa, EAGLE, and SpecInfer.
 - `CONTRIBUTING.md`: development setup, test commands, issue labels, and contribution expectations.
-- `CHANGELOG.md` and `docs/release.md`: release notes, validation checklist, and benchmark-claim rules.
+- GitHub Releases and `docs/release.md`: release notes, validation checklist, and benchmark-claim rules.
 
 ## 16. Testing and Validation
 
