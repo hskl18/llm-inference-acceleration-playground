@@ -660,7 +660,6 @@ def run_latency_benchmark(
         "token_count_method": token_count_method,
     }
     environment = collect_environment_metadata(
-        cwd=Path.cwd(),
         hardware_label=hardware_label,
         gpu_memory=memory_after if memory_after.available else memory_before,
     )

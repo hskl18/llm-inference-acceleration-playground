@@ -89,6 +89,7 @@ The `metrics.timeout_count` field counts failed request rows whose error indicat
 Timeout rows remain visible in `raw_requests.jsonl`; they are not dropped from request counts.
 
 The `metadata` block includes reproducibility fields: project version, Python version, operating system, git commit when available, backend version when available, hardware label, and GPU name when available.
+`git_commit` is the commit of the llm-accel checkout that ran the benchmark, and null for an installed package, whatever repository the command ran in.
 
 Hardware-oriented metadata also includes `model_revision`, `tokenizer`, `tokenizer_revision`, `token_count_method`, `endpoint_sha256`, `requested_input_tokens`, `optimization_profile`, `server_command_sha256`, `environment_fingerprint`, streaming mode, `gpu_driver_version`, the PyTorch CUDA build as `cuda_version`, the NVIDIA driver API level as `cuda_driver_api_version`, and `torch_version`.
 For vLLM evidence, `input_tokens` comes from server usage so chat-template tokens are included.

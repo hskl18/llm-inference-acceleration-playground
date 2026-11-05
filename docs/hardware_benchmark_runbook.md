@@ -4,6 +4,8 @@ This runbook describes the evidence required for a real vLLM optimization matrix
 The repository does not include a real GPU result as of version 0.2.0.
 Mock results validate the workflow and evidence gates only.
 
+Run from a source checkout: `report claim-audit` requires the benchmark code commit, which an installed package cannot report.
+
 ## Experiment Boundary
 
 The v0.2.0 matrix covers five treatment profiles:

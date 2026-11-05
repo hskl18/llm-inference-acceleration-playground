@@ -45,9 +45,25 @@ def resolve_git_commit(cwd: str | Path = ".") -> str | None:
     return commit or None
 
 
+def resolve_package_commit(package_dir: str | Path = Path(__file__).resolve().parents[1]) -> str | None:
+    """Return the commit of this package's own checkout, or None for an installed package."""
+    try:
+        # The package can sit inside an unrelated repository, such as a project's .venv, so git must track it.
+        subprocess.run(
+            ["git", "ls-files", "--error-unmatch", "__init__.py"],
+            cwd=Path(package_dir),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+    return resolve_git_commit(package_dir)
+
+
 def collect_environment_metadata(
     *,
-    cwd: str | Path = ".",
     hardware_label: str = "local",
     gpu_memory: GpuMemorySnapshot | None = None,
 ) -> dict[str, object]:
@@ -55,7 +71,7 @@ def collect_environment_metadata(
     return {
         "python_version": sys.version.split()[0],
         "operating_system": platform.platform(),
-        "git_commit": resolve_git_commit(cwd),
+        "git_commit": resolve_package_commit(),
         "hardware_label": hardware_label,
         "gpu_name": gpu_memory.gpu_name if gpu_memory and gpu_memory.available else None,
         **accelerator,

@@ -12,6 +12,7 @@ EXAMPLE_FILENAMES = (
     "benchmark_prompts.yaml",
     "benchmark_prefix_cache.yaml",
     "benchmark_vllm_small.yaml",
+    "optimization_matrix_mock.yaml",
     "spec_prompts.jsonl",
     "prefix_cache_prompts.jsonl",
     "task_eval_small.jsonl",

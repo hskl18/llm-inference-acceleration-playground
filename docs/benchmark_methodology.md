@@ -32,7 +32,7 @@ Runs that fall back to a whitespace estimate, or that mix methods, say so in `su
 - p50, p95, p99 latency
 - inter-token latency p50, p95, p99, and maximum
 - goodput against declared TTFT, TPOT, and end-to-end SLOs
-- failed request count
+- failed request count, which includes a response that reports an error or an aborted `finish_reason`, a stream that ends without a `finish_reason` or `[DONE]`, and a response with no text
 - timeout count
 - client queue delay p50, p95, p99, and maximum
 - scheduled-arrival to completion latency
