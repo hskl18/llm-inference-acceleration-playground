@@ -18,6 +18,8 @@ On an Apple M3 Pro laptop, Ollama 0.34.1 serving `qwen2.5:1.5b-instruct`, 3 repe
 | 4 | 62.7 [43.1, 82.3] | 3306 ms | 2% |
 | 8 | 61.1 [44.3, 77.9] | 7602 ms | 3% |
 
+![Output tokens per second stays at about 61 to 66 at 1, 2, 4 and 8 concurrent requests, while requests meeting the latency budget fall from 97 percent to 3, 2 and 3 percent.](https://raw.githubusercontent.com/hskl18/llm-inference-acceleration-playground/main/docs/media/concurrency.png)
+
 Throughput is flat, so a report that only published tokens per second would have shown four nearly identical numbers.
 Goodput shows what actually happened: this server admits one request at a time, so concurrency buys queueing, and three of the four configurations miss the latency budget for almost every request.
 
