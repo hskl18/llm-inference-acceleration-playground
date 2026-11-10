@@ -526,6 +526,14 @@ def _validate_raw_requests(
             ):
                 blockers.append("raw request end-to-end latency does not match completion minus schedule")
                 break
+            # A first token after completion is an impossible row, and it would invert the streaming interval.
+            if (
+                row.get("completed")
+                and _finite_non_negative(row.get("ttft_ms"))
+                and float(row["ttft_ms"]) > dispatch_span + timing_tolerance_ms
+            ):
+                blockers.append("raw request first token arrives after its completion")
+                break
     if output_tokens != metrics.get("output_tokens"):
         blockers.append("raw completed output tokens do not match summary metrics")
     # The declared SLO is part of the run record, so goodput is recomputed against it.

@@ -433,6 +433,18 @@ def test_claim_audit_blocks_a_summary_that_drops_the_observed_concurrency_block(
     assert "summary metrics.observed_concurrency is missing from a run whose raw requests are current" in blockers
 
 
+def test_claim_audit_blocks_a_first_token_after_completion(tmp_path) -> None:
+    _mock_run(tmp_path)
+    raw_path = tmp_path / "raw_requests.jsonl"
+    rows = [json.loads(line) for line in raw_path.read_text(encoding="utf-8").splitlines()]
+    rows[0]["ttft_ms"] = rows[0]["total_latency_ms"] + 1000.0
+    raw_path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+    blockers = audit_hardware_claim(tmp_path)["blockers"]
+
+    assert "raw request first token arrives after its completion" in blockers
+
+
 def test_claim_audit_accepts_summaries_and_rows_written_before_the_new_metrics(tmp_path) -> None:
     summary = _mock_run(tmp_path)
     del summary["metrics"]["first_answer_ms"]

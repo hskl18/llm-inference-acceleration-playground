@@ -102,3 +102,15 @@ def test_first_answer_statistics_are_null_when_nothing_answered() -> None:
     first_answer = summarize_requests(records)["first_answer_ms"]
 
     assert first_answer == {"sample_count": 0, "mean": None, "p50": None, "p95": None, "p99": None}
+
+
+def test_a_first_token_after_completion_cannot_invert_the_streaming_interval() -> None:
+    records = [
+        _request(1, dispatch=0.0, ttft=10.0, completed_at=100.0),
+        _request(2, dispatch=0.0, ttft=500.0, completed_at=100.0),
+    ]
+
+    observed = summarize_requests(records)["observed_concurrency"]
+
+    assert observed["streaming_peak"] == 1
+    assert 0.0 <= observed["streaming_mean"] <= 1.0

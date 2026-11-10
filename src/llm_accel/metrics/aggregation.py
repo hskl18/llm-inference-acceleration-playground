@@ -136,15 +136,14 @@ def _observed_concurrency(items: list[RequestMetrics]) -> dict[str, object]:
     """
     # Failed requests still held a slot, so they count in flight; only completed ones streamed.
     in_flight_peak, _ = _overlap([(item.dispatch_offset_ms, item.completed_offset_ms) for item in items])
+    streamed = [item for item in items if item.completed and item.inter_token_latencies_ms]
+    # A start clamped to the completion keeps a skewed row from inverting its interval.
     streaming = [
-        (item.dispatch_offset_ms + item.ttft_ms, item.completed_offset_ms)
-        for item in items
-        if item.completed and item.inter_token_latencies_ms
+        (min(item.dispatch_offset_ms + item.ttft_ms, item.completed_offset_ms), item.completed_offset_ms)
+        for item in streamed
     ]
     streaming_peak, streaming_mean = _overlap(streaming)
-    streamed_in_flight_peak, _ = _overlap(
-        [(item.dispatch_offset_ms, item.completed_offset_ms) for item in items if item.completed and item.inter_token_latencies_ms]
-    )
+    streamed_in_flight_peak, _ = _overlap([(item.dispatch_offset_ms, item.completed_offset_ms) for item in streamed])
     return {
         "in_flight_peak": in_flight_peak,
         "streamed_in_flight_peak": streamed_in_flight_peak if streaming else None,
