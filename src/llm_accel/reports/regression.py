@@ -113,10 +113,10 @@ def compare_regression(
         )
         for path in REGRESSION_METRIC_PATHS
     ]
-    one_sided = [".".join(row["metric"]) for row in metrics if row.get("reason") == "Only one group reports this metric."]
+    one_sided = [".".join(row["metric"]) for row in metrics if row.get("one_sided")]
     if one_sided:
         warnings.append(f"Only one group reports {', '.join(one_sided)}; check why the other stopped or started.")
-    if all(row["verdict"] in {"missing", "undefined"} for row in metrics):
+    if all(row["verdict"] in {"missing", "undefined"} or row.get("one_sided") for row in metrics):
         blockers.append("No metric is reported by every run, so there is nothing to compare.")
     verdict = _overall_verdict(metrics, blockers)
     report = {
@@ -185,7 +185,11 @@ def _invariants(summary: dict[str, object], varied: list[str], blockers: list[st
     varied_environment = [field for field in varied if field in ENVIRONMENT_FINGERPRINT_FIELDS]
     if varied_environment:
         # Recomputing from incomplete metadata would hash the gaps as None and hide a real difference.
-        absent = [field for field in ENVIRONMENT_FINGERPRINT_FIELDS if field not in metadata]  # type: ignore[operator]
+        absent = [
+            field
+            for field in ENVIRONMENT_FINGERPRINT_FIELDS
+            if field not in metadata and field not in varied_environment  # type: ignore[operator]
+        ]
         if absent:
             message = f"Varying an environment field needs every fingerprint field; missing: {', '.join(absent)}."
             if message not in blockers:
@@ -234,12 +238,9 @@ def _compare_metric(
         "candidate_count": sum(value is not None for value in candidate),
     }
     if None in baseline or None in candidate:
-        # A metric that one group reports in full and the other never does changed, so it cannot pass quietly.
-        one_sided = (None not in baseline and all(value is None for value in candidate)) or (
-            None not in candidate and all(value is None for value in baseline)
-        )
-        if one_sided:
-            return {**row, "verdict": "inconclusive", "reason": "Only one group reports this metric."}
+        # A metric that one group reports in full and the other does not changed, so it cannot pass quietly.
+        if (None in baseline) != (None in candidate):
+            return {**row, "verdict": "inconclusive", "one_sided": True, "reason": "Only one group reports this metric in every run."}
         return {**row, "verdict": "missing", "reason": "Not every run reports this metric."}
     base = [float(value) for value in baseline]  # type: ignore[arg-type]
     cand = [float(value) for value in candidate]  # type: ignore[arg-type]

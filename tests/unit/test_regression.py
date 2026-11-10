@@ -252,3 +252,23 @@ def test_runs_that_share_no_metric_cannot_pass(tmp_path, template) -> None:
     report = json.loads((tmp_path / "out" / "regression.json").read_text(encoding="utf-8"))
     assert report["verdict"] == "not_comparable"
     assert "nothing to compare" in report["blockers"][-1]
+
+
+def test_a_metric_one_group_reports_only_partly_is_inconclusive(tmp_path, template) -> None:
+    baseline = _group(tmp_path, "base", template, [900.0, 950.0, 1000.0], path=("first_answer_ms", "p50"))
+    candidate = _group(tmp_path, "cand", template, [950.0, None, None], path=("first_answer_ms", "p50"))
+
+    report = compare_regression(baseline, candidate, tmp_path / "out")
+
+    assert _row(report, ("first_answer_ms", "p50"))["verdict"] == "inconclusive"
+
+
+def test_a_varied_field_absent_from_older_metadata_is_not_a_missing_fingerprint_field(tmp_path, template) -> None:
+    older = copy.deepcopy(template)
+    del older["metadata"]["cuda_driver_api_version"]
+    baseline = _group(tmp_path, "base", older, [100.0, 101.0, 99.0])
+    candidate = _group(tmp_path, "cand", template, [100.0, 101.0, 99.0], cuda_driver_api_version="13.0")
+
+    report = compare_regression(baseline, candidate, tmp_path / "out", vary=["cuda_driver_api_version"])
+
+    assert not any("missing:" in blocker for blocker in report["blockers"])
