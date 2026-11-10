@@ -108,6 +108,51 @@ def _goodput(
     }
 
 
+def _overlap(intervals: list[tuple[float, float]]) -> tuple[int, float]:
+    """Peak and time-weighted mean number of intervals open at once."""
+    # An interval that ends when another starts does not overlap it, so ends sort first.
+    events = sorted([(start, 1) for start, _ in intervals] + [(end, -1) for _, end in intervals])
+    if not events:
+        return 0, 0.0
+    open_now = peak = 0
+    area = 0.0
+    last = events[0][0]
+    for at, delta in events:
+        area += open_now * (at - last)
+        last = at
+        open_now += delta
+        peak = max(peak, open_now)
+    span = events[-1][0] - events[0][0]
+    return peak, area / span if span > 0 else float(peak)
+
+
+def _observed_concurrency(items: list[RequestMetrics]) -> dict[str, object]:
+    """How many requests the client had in flight, and how many the server streamed at once.
+
+    A request streams from its first token to its completion. Only requests with at least two
+    streamed chunks count, which leaves out non-streaming calls, whose first token time is unknown.
+    A streaming peak of 1 under higher client concurrency means the server answered one request
+    at a time and the extra concurrency only queued.
+    """
+    # Failed requests still held a slot, so they count in flight; only completed ones streamed.
+    in_flight_peak, _ = _overlap([(item.dispatch_offset_ms, item.completed_offset_ms) for item in items])
+    streamed = [item for item in items if item.completed and item.inter_token_latencies_ms]
+    # A start clamped to the completion keeps a skewed row from inverting its interval.
+    streaming = [
+        (min(item.dispatch_offset_ms + item.ttft_ms, item.completed_offset_ms), item.completed_offset_ms)
+        for item in streamed
+    ]
+    streaming_peak, streaming_mean = _overlap(streaming)
+    streamed_in_flight_peak, _ = _overlap([(item.dispatch_offset_ms, item.completed_offset_ms) for item in streamed])
+    return {
+        "in_flight_peak": in_flight_peak,
+        "streamed_in_flight_peak": streamed_in_flight_peak if streaming else None,
+        "streamed_request_count": len(streaming),
+        "streaming_peak": streaming_peak if streaming else None,
+        "streaming_mean": streaming_mean if streaming else None,
+    }
+
+
 def summarize_requests(
     records: Iterable[RequestMetrics],
     elapsed_seconds: float | None = None,
@@ -192,6 +237,7 @@ def summarize_requests(
             "p95": percentile(first_answers, 95) if first_answers else None,
             "p99": percentile(first_answers, 99) if first_answers else None,
         },
+        "observed_concurrency": _observed_concurrency(items),
         "goodput": (
             _goodput(
                 completed,

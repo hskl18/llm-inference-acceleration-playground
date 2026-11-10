@@ -34,6 +34,56 @@ def _request(
     )
 
 
+def test_requests_in_flight_together_but_streamed_one_after_another_show_a_streaming_peak_of_one() -> None:
+    # Both dispatched at 0; the server streams the first until 100, then starts the second.
+    records = [
+        _request(1, dispatch=0.0, ttft=50.0, completed_at=100.0),
+        _request(2, dispatch=0.0, ttft=150.0, completed_at=200.0),
+    ]
+
+    observed = summarize_requests(records)["observed_concurrency"]
+
+    assert observed["in_flight_peak"] == 2
+    assert observed["streamed_in_flight_peak"] == 2
+    assert observed["streaming_peak"] == 1
+    assert observed["streamed_request_count"] == 2
+
+
+def test_overlapping_streams_show_the_server_interleaving_them() -> None:
+    records = [
+        _request(1, dispatch=0.0, ttft=10.0, completed_at=100.0),
+        _request(2, dispatch=0.0, ttft=20.0, completed_at=110.0),
+    ]
+
+    observed = summarize_requests(records)["observed_concurrency"]
+
+    assert observed["streaming_peak"] == 2
+    assert 1.0 < observed["streaming_mean"] <= 2.0
+
+
+def test_a_failed_request_still_counts_in_flight_but_not_as_streaming() -> None:
+    records = [
+        _request(1, dispatch=0.0, ttft=10.0, completed_at=100.0),
+        _request(2, dispatch=0.0, ttft=0.0, completed_at=120.0, completed=False),
+    ]
+
+    observed = summarize_requests(records)["observed_concurrency"]
+
+    assert observed["in_flight_peak"] == 2
+    assert observed["streamed_in_flight_peak"] == 1
+    assert observed["streamed_request_count"] == 1
+
+
+def test_non_streaming_requests_have_no_streaming_figures() -> None:
+    records = [_request(1, dispatch=0.0, ttft=100.0, completed_at=100.0, streamed=False)]
+
+    observed = summarize_requests(records)["observed_concurrency"]
+
+    assert observed["in_flight_peak"] == 1
+    assert observed["streaming_peak"] is None
+    assert observed["streaming_mean"] is None
+
+
 def test_first_answer_statistics_cover_only_requests_that_answered() -> None:
     records = [
         _request(1, dispatch=0.0, ttft=10.0, completed_at=100.0, first_answer=60.0),
@@ -52,3 +102,15 @@ def test_first_answer_statistics_are_null_when_nothing_answered() -> None:
     first_answer = summarize_requests(records)["first_answer_ms"]
 
     assert first_answer == {"sample_count": 0, "mean": None, "p50": None, "p95": None, "p99": None}
+
+
+def test_a_first_token_after_completion_cannot_invert_the_streaming_interval() -> None:
+    records = [
+        _request(1, dispatch=0.0, ttft=10.0, completed_at=100.0),
+        _request(2, dispatch=0.0, ttft=500.0, completed_at=100.0),
+    ]
+
+    observed = summarize_requests(records)["observed_concurrency"]
+
+    assert observed["streaming_peak"] == 1
+    assert 0.0 <= observed["streaming_mean"] <= 1.0

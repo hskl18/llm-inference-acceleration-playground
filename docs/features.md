@@ -15,6 +15,7 @@ See [docs/cli.md](cli.md) for the commands, [docs/benchmark_methodology.md](benc
 - inter-token latency distribution from per-chunk stream arrivals, retained per request
 - goodput against declared TTFT, TPOT, and end-to-end SLOs
 - time to the first answer text, apart from TTFT, for reasoning models that stream reasoning first
+- observed concurrency from raw offsets: peak requests in flight and peak and mean responses streaming at once
 - p50, p95, and p99 for latency, TTFT, TPOT, inter-token latency, queue delay, and end-to-end latency
 - token counts from server usage where the endpoint reports it, with the method recorded per request
 - exact tokenizer counts at an immutable revision for vLLM evidence
@@ -58,6 +59,7 @@ See [docs/cli.md](cli.md) for the commands, [docs/benchmark_methodology.md](benc
 - `report claim-audit` for whether one run can support a hardware claim
 - `report ranking-audit` for whether a matrix can support a performance ranking
 - strict and explicitly stratified comparison modes with per-profile aggregates
+- a claim-audit warning when the server streamed one response at a time under higher client concurrency
 - endpoint URL redaction through a single helper used by every writer
 - endpoint fingerprints that bind remote evidence without persisting the URL
 

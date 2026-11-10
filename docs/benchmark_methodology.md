@@ -57,6 +57,14 @@ For a reasoning model that makes TTFT the time to the first reasoning token, whi
 For a model that does not reason the two are equal, and a non-streaming call reports its total latency for both.
 SLO thresholds and goodput still use TTFT.
 
+## Observed Concurrency
+
+A run's concurrency is what the client offered, not what the server did with it.
+`metrics.observed_concurrency` reconstructs both from the raw request offsets: the peak number of requests in flight, and the peak and time-weighted mean number of responses streaming at once, where a response streams from its first token to its completion.
+When more than one of the streamed requests was in flight at once (`streamed_in_flight_peak`) but the streaming peak is 1, the server answered one request at a time, and `report claim-audit` warns about it.
+Sparse open-loop arrivals that never overlap, or a failed request overlapping one stream, give no warning.
+Only requests with at least two streamed chunks count, so non-streaming runs report no streaming figures.
+
 ## Goodput
 
 Average latency and average throughput can both look healthy while a large share of requests misses the latency budget the service actually promises.

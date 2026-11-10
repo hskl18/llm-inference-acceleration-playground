@@ -246,6 +246,21 @@ def audit_hardware_claim(run_dir: str | Path) -> dict[str, object]:
     warnings.append(
         "Artifact checks cannot independently attest that the endpoint process matched the recorded command; preserve operator or platform launch evidence."
     )
+    observed = metrics.get("observed_concurrency")
+    concurrency = metadata.get("concurrency")
+    if (
+        isinstance(observed, dict)
+        and observed.get("streaming_peak") == 1
+        # Only overlap among the streamed requests shows queueing; a failed request proves nothing.
+        and isinstance(observed.get("streamed_in_flight_peak"), int)
+        and observed["streamed_in_flight_peak"] > 1
+        and isinstance(concurrency, int)
+        and concurrency > 1
+    ):
+        warnings.append(
+            f"Up to {observed['streamed_in_flight_peak']} streamed requests were in flight at once, but the server never streamed "
+            "two responses at once; it answered one request at a time, so the extra concurrency measured queueing."
+        )
     if metadata.get("request_schedule") == "closed-loop":
         warnings.append(
             "Closed-loop scheduling is susceptible to coordinated omission and is not sufficient for a cross-profile performance ranking."
@@ -511,6 +526,14 @@ def _validate_raw_requests(
             ):
                 blockers.append("raw request end-to-end latency does not match completion minus schedule")
                 break
+            # A first token after completion is an impossible row, and it would invert the streaming interval.
+            if (
+                row.get("completed")
+                and _finite_non_negative(row.get("ttft_ms"))
+                and float(row["ttft_ms"]) > dispatch_span + timing_tolerance_ms
+            ):
+                blockers.append("raw request first token arrives after its completion")
+                break
     if output_tokens != metrics.get("output_tokens"):
         blockers.append("raw completed output tokens do not match summary metrics")
     # The declared SLO is part of the run record, so goodput is recomputed against it.
@@ -607,6 +630,19 @@ def _validate_recomputed_metrics(
         paths.extend(("first_answer_ms", key) for key in ("sample_count", "mean", "p50", "p95", "p99"))
     elif new_format:
         blockers.append("summary metrics.first_answer_ms is missing but raw requests record first_answer_ms")
+    if isinstance(_nested(metrics, ("observed_concurrency",)), dict):
+        paths.extend(
+            ("observed_concurrency", key)
+            for key in (
+                "in_flight_peak",
+                "streamed_in_flight_peak",
+                "streamed_request_count",
+                "streaming_peak",
+                "streaming_mean",
+            )
+        )
+    elif new_format:
+        blockers.append("summary metrics.observed_concurrency is missing from a run whose raw requests are current")
     if isinstance(_nested(recomputed, ("goodput",)), dict):
         paths.extend(
             [

@@ -39,6 +39,7 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
     tpot = metrics.get("tpot_ms", {})
     itl = metrics.get("inter_token_latency_ms", {})
     first_answer = metrics.get("first_answer_ms")
+    observed = metrics.get("observed_concurrency")
     goodput = metrics.get("goodput")
     queue_delay = metrics.get("queue_delay_ms", {})
     end_to_end = metrics.get("end_to_end_latency_ms", {})
@@ -115,6 +116,9 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
         f"| End-to-end latency p99 | {end_to_end.get('p99', 0.0):.3f} ms |",
         f"| Output tokens/sec | {throughput.get('output_tokens_per_second', 0.0):.3f} |",
         f"| Requests/sec | {throughput.get('requests_per_second', 0.0):.3f} |",
+        f"| Peak requests in flight | {_optional_count(observed, 'in_flight_peak')} |",
+        f"| Peak responses streaming at once | {_optional_count(observed, 'streaming_peak')} |",
+        f"| Mean responses streaming at once | {_optional_count(observed, 'streaming_mean', '{:.3f}')} |",
         f"| Client CPU cores used | {client_load.get('cpu_cores_used', 0.0):.3f} |",
         "",
         "## Goodput",

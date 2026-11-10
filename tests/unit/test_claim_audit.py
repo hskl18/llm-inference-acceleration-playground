@@ -401,14 +401,16 @@ def _mock_run(tmp_path, *, concurrency: int = 1) -> dict[str, object]:
     return json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
 
 
-def test_claim_audit_recomputes_first_answer_from_raw_rows(tmp_path) -> None:
+def test_claim_audit_recomputes_first_answer_and_observed_concurrency(tmp_path) -> None:
     summary = _mock_run(tmp_path)
     summary["metrics"]["first_answer_ms"]["p50"] += 1.0
+    summary["metrics"]["observed_concurrency"]["in_flight_peak"] += 1
     (tmp_path / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
 
     blockers = audit_hardware_claim(tmp_path)["blockers"]
 
     assert "summary metric first_answer_ms.p50 does not match raw requests" in blockers
+    assert "summary metric observed_concurrency.in_flight_peak does not match raw requests" in blockers
 
 
 def test_claim_audit_blocks_a_summary_that_drops_the_first_answer_block(tmp_path) -> None:
@@ -421,9 +423,32 @@ def test_claim_audit_blocks_a_summary_that_drops_the_first_answer_block(tmp_path
     assert "summary metrics.first_answer_ms is missing but raw requests record first_answer_ms" in blockers
 
 
+def test_claim_audit_blocks_a_summary_that_drops_the_observed_concurrency_block(tmp_path) -> None:
+    summary = _mock_run(tmp_path)
+    del summary["metrics"]["observed_concurrency"]
+    (tmp_path / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+
+    blockers = audit_hardware_claim(tmp_path)["blockers"]
+
+    assert "summary metrics.observed_concurrency is missing from a run whose raw requests are current" in blockers
+
+
+def test_claim_audit_blocks_a_first_token_after_completion(tmp_path) -> None:
+    _mock_run(tmp_path)
+    raw_path = tmp_path / "raw_requests.jsonl"
+    rows = [json.loads(line) for line in raw_path.read_text(encoding="utf-8").splitlines()]
+    rows[0]["ttft_ms"] = rows[0]["total_latency_ms"] + 1000.0
+    raw_path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+    blockers = audit_hardware_claim(tmp_path)["blockers"]
+
+    assert "raw request first token arrives after its completion" in blockers
+
+
 def test_claim_audit_accepts_summaries_and_rows_written_before_the_new_metrics(tmp_path) -> None:
     summary = _mock_run(tmp_path)
     del summary["metrics"]["first_answer_ms"]
+    del summary["metrics"]["observed_concurrency"]
     (tmp_path / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
     raw_path = tmp_path / "raw_requests.jsonl"
     rows = [json.loads(line) for line in raw_path.read_text(encoding="utf-8").splitlines()]
@@ -433,6 +458,23 @@ def test_claim_audit_accepts_summaries_and_rows_written_before_the_new_metrics(t
 
     blockers = audit_hardware_claim(tmp_path)["blockers"]
 
-    assert not [item for item in blockers if "first_answer" in item]
+    assert not [item for item in blockers if "first_answer" in item or "observed_concurrency" in item]
     assert not [item for item in blockers if "cannot reproduce" in item]
 
+
+def test_claim_audit_warns_only_when_overlapping_requests_were_streamed_one_at_a_time(tmp_path) -> None:
+    summary = _mock_run(tmp_path, concurrency=2)
+    observed = summary["metrics"]["observed_concurrency"]
+    summary_path = tmp_path / "summary.json"
+
+    observed.update(streamed_in_flight_peak=2, streaming_peak=1)
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    serialized = audit_hardware_claim(tmp_path)["warnings"]
+
+    # A failed request overlapping one stream raises in_flight_peak but proves no queueing.
+    observed.update(in_flight_peak=2, streamed_in_flight_peak=1, streaming_peak=1)
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    sparse = audit_hardware_claim(tmp_path)["warnings"]
+
+    assert any("answered one request at a time" in warning for warning in serialized)
+    assert not any("answered one request at a time" in warning for warning in sparse)
