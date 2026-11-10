@@ -188,14 +188,38 @@ def test_varied_dictionaries_compare_by_content_not_key_order(tmp_path, template
     assert len(report["baseline"]["varied_values"]["client_configuration"]) == 1
 
 
-def test_a_lost_first_answer_is_missing_rather_than_an_improvement(tmp_path, template) -> None:
+def test_a_lost_first_answer_is_inconclusive_rather_than_an_improvement(tmp_path, template) -> None:
     baseline = _group(tmp_path, "base", template, [900.0, 950.0, 1000.0], path=("first_answer_ms", "p50"))
     candidate = _group(tmp_path, "cand", template, [None, None, None], path=("first_answer_ms", "p50"))
 
     report = compare_regression(baseline, candidate, tmp_path / "out")
 
+    # The candidate stopped answering altogether, so the change cannot pass as no change.
+    assert _row(report, ("first_answer_ms", "p50"))["verdict"] == "inconclusive"
+    assert report["verdict"] == "inconclusive"
+    assert "first_answer_ms.p50" in report["warnings"][-1]
+
+
+def test_a_metric_missing_from_some_runs_of_both_groups_is_left_out(tmp_path, template) -> None:
+    baseline = _group(tmp_path, "base", template, [900.0, None, 1000.0], path=("first_answer_ms", "p50"))
+    candidate = _group(tmp_path, "cand", template, [950.0, 960.0, None], path=("first_answer_ms", "p50"))
+
+    report = compare_regression(baseline, candidate, tmp_path / "out")
+
     assert _row(report, ("first_answer_ms", "p50"))["verdict"] == "missing"
     assert report["verdict"] == "no_material_change"
+
+
+def test_varying_an_environment_field_needs_every_fingerprint_field(tmp_path, template) -> None:
+    trimmed = copy.deepcopy(template)
+    del trimmed["metadata"]["torch_version"]
+    baseline = _group(tmp_path, "base", trimmed, [100.0, 101.0, 99.0], backend_version="0.34.1")
+    candidate = _group(tmp_path, "cand", trimmed, [100.0, 101.0, 99.0], backend_version="0.35.0")
+
+    report = compare_regression(baseline, candidate, tmp_path / "out", vary=["backend_version"])
+
+    assert report["verdict"] == "not_comparable"
+    assert any("missing: torch_version" in blocker for blocker in report["blockers"])
 
 
 def test_an_unknown_vary_field_is_an_error(tmp_path, template) -> None:
