@@ -38,6 +38,8 @@ class CompletionResult:
     reasoning_text: str = ""
     # Gaps between consecutive content-bearing stream chunks, empty for non-streaming calls.
     inter_token_latencies_ms: tuple[float, ...] = ()
+    # When the first answer (not reasoning) text arrived; None when no answer text arrived.
+    first_answer_ms: float | None = None
 
     @property
     def tpot_ms(self) -> float:
@@ -89,6 +91,7 @@ class MockOpenAIClient:
             input_tokens=input_tokens,
             token_count_method="mock_synthetic",
             inter_token_latencies_ms=tuple([tpot_ms] * max(output_tokens - 1, 0)) if stream else (),
+            first_answer_ms=ttft_ms if stream else total_latency_ms,
         )
 
 
@@ -184,6 +187,7 @@ class OpenAICompatibleClient:
             input_tokens=input_tokens,
             token_count_method=method,
             reasoning_text=reasoning,
+            first_answer_ms=total_latency_ms if content else None,
         )
 
     def _complete_streaming(self, prompt: str, max_tokens: int) -> CompletionResult:
@@ -197,6 +201,7 @@ class OpenAICompatibleClient:
             method="POST",
         )
         first_token_at: float | None = None
+        first_answer_at: float | None = None
         last_token_at: float | None = None
         inter_token_latencies: list[float] = []
         chunks: list[str] = []
@@ -236,6 +241,8 @@ class OpenAICompatibleClient:
                     else:
                         inter_token_latencies.append((arrived_at - last_token_at) * 1000)
                     last_token_at = arrived_at
+                    if content and first_answer_at is None:
+                        first_answer_at = arrived_at
                 chunks.append(content)
                 reasoning_chunks.append(reasoning)
 
@@ -259,6 +266,7 @@ class OpenAICompatibleClient:
             token_count_method=method,
             reasoning_text=reasoning_text,
             inter_token_latencies_ms=tuple(inter_token_latencies),
+            first_answer_ms=(first_answer_at - started) * 1000 if first_answer_at is not None else None,
         )
 
     def _endpoint(self) -> str:

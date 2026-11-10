@@ -146,6 +146,7 @@ def _execute_request(
             queue_delay_ms=max(dispatch - scheduled, 0.0),
             end_to_end_latency_ms=max(completed - scheduled, 0.0),
             inter_token_latencies_ms=result.inter_token_latencies_ms,
+            first_answer_ms=result.first_answer_ms,
         )
         return _MeasuredRequest(
             metrics=metrics,

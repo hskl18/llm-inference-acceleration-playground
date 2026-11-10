@@ -14,6 +14,7 @@ See [docs/cli.md](cli.md) for the commands, [docs/benchmark_methodology.md](benc
 - TPOT from the run's authoritative output token count
 - inter-token latency distribution from per-chunk stream arrivals, retained per request
 - goodput against declared TTFT, TPOT, and end-to-end SLOs
+- time to the first answer text, apart from TTFT, for reasoning models that stream reasoning first
 - p50, p95, and p99 for latency, TTFT, TPOT, inter-token latency, queue delay, and end-to-end latency
 - token counts from server usage where the endpoint reports it, with the method recorded per request
 - exact tokenizer counts at an immutable revision for vLLM evidence

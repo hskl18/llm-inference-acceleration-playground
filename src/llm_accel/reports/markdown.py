@@ -20,6 +20,17 @@ def _goodput_lines(goodput: Any) -> list[str]:
     ]
 
 
+def _optional_ms(group: Any, key: str) -> str:
+    if not isinstance(group, dict) or not group.get("sample_count"):
+        return "n/a"
+    return f"{float(group.get(key, 0.0)):.3f} ms"
+
+
+def _optional_count(group: Any, key: str, fmt: str = "{}") -> str:
+    value = group.get(key) if isinstance(group, dict) else None
+    return "n/a" if value is None else fmt.format(value)
+
+
 def render_summary_markdown(summary: dict[str, Any]) -> str:
     metadata = summary.get("metadata", {})
     metrics = summary.get("metrics", {})
@@ -27,6 +38,7 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
     ttft = metrics.get("ttft_ms", {})
     tpot = metrics.get("tpot_ms", {})
     itl = metrics.get("inter_token_latency_ms", {})
+    first_answer = metrics.get("first_answer_ms")
     goodput = metrics.get("goodput")
     queue_delay = metrics.get("queue_delay_ms", {})
     end_to_end = metrics.get("end_to_end_latency_ms", {})
@@ -85,6 +97,9 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
         f"| TTFT p50 | {ttft.get('p50', 0.0):.3f} ms |",
         f"| TTFT p95 | {ttft.get('p95', 0.0):.3f} ms |",
         f"| TTFT p99 | {ttft.get('p99', 0.0):.3f} ms |",
+        f"| Requests with answer text | {_optional_count(first_answer, 'sample_count', '{} of ' + str(metrics.get('completed_count', 0)))} |",
+        f"| First answer p50 | {_optional_ms(first_answer, 'p50')} |",
+        f"| First answer p95 | {_optional_ms(first_answer, 'p95')} |",
         f"| TPOT p50 | {tpot.get('p50', 0.0):.3f} ms |",
         f"| TPOT p95 | {tpot.get('p95', 0.0):.3f} ms |",
         f"| TPOT p99 | {tpot.get('p99', 0.0):.3f} ms |",
