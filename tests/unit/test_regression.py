@@ -261,6 +261,8 @@ def test_a_metric_one_group_reports_only_partly_is_inconclusive(tmp_path, templa
     report = compare_regression(baseline, candidate, tmp_path / "out")
 
     assert _row(report, ("first_answer_ms", "p50"))["verdict"] == "inconclusive"
+    assert report["verdict"] == "inconclusive"
+    assert "first_answer_ms.p50" in report["warnings"][-1]
 
 
 def test_a_varied_field_absent_from_older_metadata_is_not_a_missing_fingerprint_field(tmp_path, template) -> None:
@@ -271,4 +273,5 @@ def test_a_varied_field_absent_from_older_metadata_is_not_a_missing_fingerprint_
 
     report = compare_regression(baseline, candidate, tmp_path / "out", vary=["cuda_driver_api_version"])
 
-    assert not any("missing:" in blocker for blocker in report["blockers"])
+    assert report["blockers"] == []
+    assert report["verdict"] != "not_comparable"
