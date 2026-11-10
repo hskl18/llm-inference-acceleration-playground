@@ -423,6 +423,16 @@ def test_claim_audit_blocks_a_summary_that_drops_the_first_answer_block(tmp_path
     assert "summary metrics.first_answer_ms is missing but raw requests record first_answer_ms" in blockers
 
 
+def test_claim_audit_blocks_a_summary_that_drops_the_observed_concurrency_block(tmp_path) -> None:
+    summary = _mock_run(tmp_path)
+    del summary["metrics"]["observed_concurrency"]
+    (tmp_path / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+
+    blockers = audit_hardware_claim(tmp_path)["blockers"]
+
+    assert "summary metrics.observed_concurrency is missing from a run whose raw requests are current" in blockers
+
+
 def test_claim_audit_accepts_summaries_and_rows_written_before_the_new_metrics(tmp_path) -> None:
     summary = _mock_run(tmp_path)
     del summary["metrics"]["first_answer_ms"]

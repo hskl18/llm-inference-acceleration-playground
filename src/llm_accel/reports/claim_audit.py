@@ -633,6 +633,8 @@ def _validate_recomputed_metrics(
                 "streaming_mean",
             )
         )
+    elif new_format:
+        blockers.append("summary metrics.observed_concurrency is missing from a run whose raw requests are current")
     if isinstance(_nested(recomputed, ("goodput",)), dict):
         paths.extend(
             [
