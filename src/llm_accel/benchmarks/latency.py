@@ -861,6 +861,16 @@ def _build_run_warnings(
         error = after.get("error") if isinstance(after, dict) else None
         suffix = f": {error}" if error else ""
         warnings.append(f"GPU memory telemetry unavailable{suffix}.")
+    first_answer = metrics.get("first_answer_ms")
+    completed_count = int(metrics.get("completed_count", 0))
+    if isinstance(first_answer, dict) and int(first_answer.get("sample_count", 0)) < completed_count:
+        # A completed request without answer text streamed only reasoning; it still counts as completed.
+        unanswered = completed_count - int(first_answer.get("sample_count", 0))
+        warnings.append(
+            f"{unanswered} of {completed_count} completed requests returned reasoning but no answer text, "
+            "usually because the output budget ran out first; they still count toward throughput and "
+            "stay eligible for goodput under any declared SLO."
+        )
     if int(metrics.get("failed_count", 0)) > 0:
         warnings.append("One or more requests failed; inspect raw_requests.jsonl before interpreting latency or throughput.")
     if request_schedule == "closed-loop":

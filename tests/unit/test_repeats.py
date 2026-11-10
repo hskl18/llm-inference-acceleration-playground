@@ -263,3 +263,32 @@ def test_repeats_validation_rejects_a_missing_repetition(tmp_path) -> None:
 
     assert result["valid"] is False
     assert any("missing repetition repeat-01" in error for error in result["errors"])
+
+
+def test_requests_that_returned_no_answer_text_are_warned_about() -> None:
+    def warnings_for(answered: int) -> list[str]:
+        return _build_run_warnings(
+            backend="ollama",
+            backend_version="0.34.1",
+            backend_version_source="server_version_endpoint",
+            stream=True,
+            memory={"available": True},
+            metrics={
+                "failed_count": 0,
+                "completed_count": 4,
+                "queue_delay_ms": {"p95": 0.0},
+                "first_answer_ms": {"sample_count": answered},
+            },
+            request_schedule="open-loop",
+            client_processes=1,
+            client_workers=2,
+            queue_delay_warning_ms=10.0,
+            request_count=4,
+            unique_prompt_count=4,
+            token_count_method="server_usage",
+            completed_output_tokens=[1536] * 4,
+            client_load={"cpu_cores_used": 0.1, "covers_all_client_processes": True},
+        )
+
+    assert any("3 of 4 completed requests returned reasoning but no answer text" in w for w in warnings_for(1))
+    assert not any("no answer text" in w for w in warnings_for(4))

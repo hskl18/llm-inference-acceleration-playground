@@ -54,8 +54,9 @@ Non-streaming runs record no samples at all, and the claim audit blocks a run th
 TTFT starts at the first generated text, and reasoning deltas count as generated text.
 For a reasoning model that makes TTFT the time to the first reasoning token, which can be seconds before the user sees any answer.
 `first_answer_ms` records when the first answer text arrived, so the summary shows both.
-For a model that does not reason the two are equal, and a non-streaming call reports its total latency for both.
+For a model that does not reason the two are equal, and a non-streaming call that returns answer text reports its total latency for both; a response without answer text leaves `first_answer_ms` null.
 SLO thresholds and goodput still use TTFT.
+A request that streamed only reasoning, usually because the output budget ran out first, still counts as completed; the run warns how many completed requests returned no answer text.
 
 ## Observed Concurrency
 
