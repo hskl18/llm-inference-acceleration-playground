@@ -386,3 +386,43 @@ def test_claim_audit_blocks_a_run_with_no_inter_token_latency_samples(tmp_path) 
     report = audit_hardware_claim(tmp_path)
 
     assert any("no inter-token latency samples" in blocker for blocker in report["blockers"])
+
+
+def _mock_run(tmp_path, *, concurrency: int = 1) -> dict[str, object]:
+    run_latency_benchmark(
+        base_url="mock://local",
+        model="mock-model",
+        concurrency=concurrency,
+        input_tokens=16,
+        output_tokens=8,
+        output_dir=tmp_path,
+        request_count=4,
+    )
+    return json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+
+
+def test_claim_audit_recomputes_first_answer_from_raw_rows(tmp_path) -> None:
+    summary = _mock_run(tmp_path)
+    summary["metrics"]["first_answer_ms"]["p50"] += 1.0
+    (tmp_path / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+
+    blockers = audit_hardware_claim(tmp_path)["blockers"]
+
+    assert "summary metric first_answer_ms.p50 does not match raw requests" in blockers
+
+
+def test_claim_audit_accepts_summaries_and_rows_written_before_the_new_metrics(tmp_path) -> None:
+    summary = _mock_run(tmp_path)
+    del summary["metrics"]["first_answer_ms"]
+    (tmp_path / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    raw_path = tmp_path / "raw_requests.jsonl"
+    rows = [json.loads(line) for line in raw_path.read_text(encoding="utf-8").splitlines()]
+    for row in rows:
+        del row["first_answer_ms"]
+    raw_path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+    blockers = audit_hardware_claim(tmp_path)["blockers"]
+
+    assert not [item for item in blockers if "first_answer" in item]
+    assert not [item for item in blockers if "cannot reproduce" in item]
+

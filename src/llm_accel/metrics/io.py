@@ -116,6 +116,7 @@ def write_request_csv(path: Path, records: Iterable[RequestMetrics]) -> None:
         "dispatch_offset_ms",
         "queue_delay_ms",
         "end_to_end_latency_ms",
+        "first_answer_ms",
     ]
     with _atomic_text_writer(path, newline="") as handle:
         # The CSV is the flat scalar view; variable-length fields such as the per-request

@@ -133,6 +133,7 @@ def summarize_requests(
     estimated_elapsed_s = max_latency_ms / 1000 if concurrency > 1 else total_wall_ms / 1000
     effective_elapsed_s = elapsed_seconds if elapsed_seconds is not None else estimated_elapsed_s
     inter_token_latencies = [gap for item in completed for gap in item.inter_token_latencies_ms]
+    first_answers = [item.first_answer_ms for item in completed if item.first_answer_ms is not None]
     thresholds = normalize_slo(slo)
 
     return {
@@ -181,6 +182,15 @@ def summarize_requests(
             "p95": percentile(inter_token_latencies, 95),
             "p99": percentile(inter_token_latencies, 99),
             "max": max(inter_token_latencies, default=0.0),
+        },
+        # Time to the first answer text; it trails TTFT when a reasoning model streams reasoning first.
+        # With no answer at all the statistics are null, so a lost answer never reads as a fast one.
+        "first_answer_ms": {
+            "sample_count": len(first_answers),
+            "mean": mean(first_answers) if first_answers else None,
+            "p50": percentile(first_answers, 50) if first_answers else None,
+            "p95": percentile(first_answers, 95) if first_answers else None,
+            "p99": percentile(first_answers, 99) if first_answers else None,
         },
         "goodput": (
             _goodput(

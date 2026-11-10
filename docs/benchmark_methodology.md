@@ -49,6 +49,14 @@ These are chunk-arrival gaps observed by the client.
 They equal per-token latency only when the server emits one token per chunk, which is why they are reported separately from `tpot_ms` rather than replacing it.
 Non-streaming runs record no samples at all, and the claim audit blocks a run that has none.
 
+## First Answer Time
+
+TTFT starts at the first generated text, and reasoning deltas count as generated text.
+For a reasoning model that makes TTFT the time to the first reasoning token, which can be seconds before the user sees any answer.
+`first_answer_ms` records when the first answer text arrived, so the summary shows both.
+For a model that does not reason the two are equal, and a non-streaming call reports its total latency for both.
+SLO thresholds and goodput still use TTFT.
+
 ## Goodput
 
 Average latency and average throughput can both look healthy while a large share of requests misses the latency budget the service actually promises.

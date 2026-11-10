@@ -22,6 +22,7 @@ REPEAT_METRIC_PATHS: tuple[tuple[str, ...], ...] = (
     ("latency_ms", "p95"),
     ("ttft_ms", "p50"),
     ("ttft_ms", "p95"),
+    ("first_answer_ms", "p50"),
     ("tpot_ms", "p50"),
     ("inter_token_latency_ms", "p50"),
     ("inter_token_latency_ms", "p95"),

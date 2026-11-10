@@ -31,6 +31,9 @@ class RequestMetrics:
     # when the server emits one token per chunk, so they are kept separate from tpot_ms, which is
     # derived from the run's authoritative output token count.
     inter_token_latencies_ms: tuple[float, ...] = ()
+    # When the first answer text arrived. It equals ttft_ms unless a reasoning model streamed its
+    # reasoning first, and it is None when the response carried no answer text.
+    first_answer_ms: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

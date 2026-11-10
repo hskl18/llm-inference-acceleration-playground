@@ -64,6 +64,11 @@ Each line contains one request record.
 - `dispatch_offset_ms`
 - `queue_delay_ms`
 - `end_to_end_latency_ms`
+- `first_answer_ms`
+
+`first_answer_ms` is when the first answer text arrived, measured like `ttft_ms` from dispatch.
+It equals `ttft_ms` unless a reasoning model streamed reasoning first, and it is null when the response carried no answer text.
+Rows written before this field existed lack it.
 
 `raw_requests.jsonl` rows additionally carry `inter_token_latencies_ms`, the gaps between consecutive content-bearing stream chunks for that request.
 The CSV is the flat scalar view and omits that variable-length field.
@@ -112,6 +117,8 @@ Synthetic runs fingerprint the measured prompt sequence so repeated-run comparab
 
 The metrics block includes `queue_delay_ms` and `end_to_end_latency_ms` distributions alongside endpoint-call latency.
 It also includes `inter_token_latency_ms` with `sample_count`, `mean`, `p50`, `p95`, `p99`, and `max` pooled over completed requests, and `client_load` with the load generator's `cpu_seconds`, `cpu_cores_used`, and whether that figure covers every client process.
+`metrics.first_answer_ms` holds `sample_count`, `mean`, `p50`, `p95`, and `p99` over completed requests that returned answer text.
+`report claim-audit` recomputes it from the raw rows when a summary contains it.
 `metrics.goodput` is `null` unless the run declared an SLO; otherwise it records the declared `slo`, `good_request_count`, `attainment`, `good_requests_per_second`, and `good_output_tokens_per_second`, and the declared thresholds also appear as `metadata.slo`.
 
 ## `repeats_summary.json`

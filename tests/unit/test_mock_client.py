@@ -39,3 +39,14 @@ def test_mock_client_sleeps_in_real_time_by_default() -> None:
     elapsed_ms = (time.perf_counter() - started) * 1000
 
     assert elapsed_ms >= result.total_latency_ms * 0.9
+
+
+def test_mock_first_answer_follows_the_streaming_mode() -> None:
+    client = MockOpenAIClient(sleep=lambda _seconds: None)
+
+    streamed = client.complete("hello world", max_tokens=8, stream=True)
+    whole = client.complete("hello world", max_tokens=8, stream=False)
+
+    assert streamed.first_answer_ms == streamed.ttft_ms
+    # A non-streaming answer exists only once the whole response has arrived.
+    assert whole.first_answer_ms == whole.total_latency_ms

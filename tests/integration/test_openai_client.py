@@ -82,6 +82,7 @@ class _NullRoleChunkHandler(BaseHTTPRequestHandler):
     """Mimics vLLM-style streams: a null-content role chunk, a delay, sub-word chunks, then usage."""
 
     reasoning_chunks: list[str] = []
+    answer_delay_seconds: float = 0.0
     send_usage: bool = True
     non_stream_content: str | None = None
     payloads: list[dict[str, object]] = []
@@ -111,6 +112,7 @@ class _NullRoleChunkHandler(BaseHTTPRequestHandler):
         time.sleep(0.05)
         for piece in self.reasoning_chunks:
             self._event({"choices": [{"delta": {"reasoning_content": piece, "content": None}}]})
+        time.sleep(self.answer_delay_seconds)
         for piece in SUB_WORD_CHUNKS:
             self._event({"choices": [{"delta": {"content": piece}}]})
         if self.send_usage:
@@ -139,8 +141,10 @@ def _start_null_role_server(
     reasoning_chunks: list[str] | None = None,
     send_usage: bool = True,
     non_stream_content: str | None = None,
+    answer_delay_seconds: float = 0.0,
 ) -> tuple[ThreadingHTTPServer, str]:
     _NullRoleChunkHandler.reasoning_chunks = reasoning_chunks or []
+    _NullRoleChunkHandler.answer_delay_seconds = answer_delay_seconds
     _NullRoleChunkHandler.send_usage = send_usage
     _NullRoleChunkHandler.non_stream_content = non_stream_content
     _NullRoleChunkHandler.payloads = []
@@ -167,7 +171,7 @@ def test_streaming_null_role_chunk_does_not_start_ttft_or_pollute_output() -> No
 
 
 def test_streaming_reasoning_deltas_start_ttft_but_stay_out_of_output_text() -> None:
-    server, base_url = _start_null_role_server(reasoning_chunks=["think", "ing"])
+    server, base_url = _start_null_role_server(reasoning_chunks=["think", "ing"], answer_delay_seconds=0.1)
     try:
         client = OpenAICompatibleClient(base_url=base_url, model="mock")
         result = client.complete("hello", max_tokens=12, stream=True)
@@ -177,6 +181,31 @@ def test_streaming_reasoning_deltas_start_ttft_but_stay_out_of_output_text() -> 
     assert result.output_text == "".join(SUB_WORD_CHUNKS)
     assert result.reasoning_text == "thinking"
     assert result.ttft_ms >= 45.0
+    # Reasoning starts TTFT; the answer text arrives after the server's 100 ms pause.
+    assert result.first_answer_ms is not None
+    assert result.first_answer_ms >= result.ttft_ms + 90.0
+
+
+def test_without_reasoning_the_first_answer_is_the_first_token() -> None:
+    server, base_url = _start_null_role_server()
+    try:
+        client = OpenAICompatibleClient(base_url=base_url, model="mock")
+        streamed = client.complete("hello", max_tokens=10, stream=True)
+    finally:
+        server.shutdown()
+
+    assert streamed.first_answer_ms == streamed.ttft_ms
+
+
+def test_non_streaming_first_answer_is_the_total_latency() -> None:
+    server, base_url = _start_null_role_server(non_stream_content="OK")
+    try:
+        client = OpenAICompatibleClient(base_url=base_url, model="mock")
+        result = client.complete("hello", max_tokens=10, stream=False)
+    finally:
+        server.shutdown()
+
+    assert result.first_answer_ms == result.total_latency_ms
 
 
 @pytest.mark.parametrize(
