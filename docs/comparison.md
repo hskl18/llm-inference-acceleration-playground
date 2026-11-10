@@ -14,6 +14,7 @@ That leads to work the load generators do not do:
 - **Comparisons are gated on invariants rather than assumed.** Optimization settings are treatment dimensions; model, tokenizer, prompt set, schedule, client configuration, quality gate, and environment are invariants, and runs that differ in an invariant are put in separate strata instead of being ranked against each other.
 - **Workload identity is recorded.** Every run stores a prompt-set fingerprint, the distinct prompt count, and a shared-prefix estimate, and warns when the measured prompts repeat, because a repeating workload against a caching server measures the cache.
 - **The client is treated as a suspect.** Every run publishes the load generator's own CPU cost and its queue delay, so "the server was slow" can be distinguished from "our benchmark could not keep up".
+  The raw offsets also show how many responses the server actually streamed at once, so offered concurrency that only queued is visible.
 
 The honest summary: those tools are better at generating load, this one is stricter about what the resulting number is allowed to claim.
 It is also younger.

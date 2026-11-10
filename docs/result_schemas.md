@@ -118,7 +118,8 @@ Synthetic runs fingerprint the measured prompt sequence so repeated-run comparab
 The metrics block includes `queue_delay_ms` and `end_to_end_latency_ms` distributions alongside endpoint-call latency.
 It also includes `inter_token_latency_ms` with `sample_count`, `mean`, `p50`, `p95`, `p99`, and `max` pooled over completed requests, and `client_load` with the load generator's `cpu_seconds`, `cpu_cores_used`, and whether that figure covers every client process.
 `metrics.first_answer_ms` holds `sample_count`, `mean`, `p50`, `p95`, and `p99` over completed requests that returned answer text.
-`report claim-audit` recomputes it from the raw rows when a summary contains it, and blocks a summary that drops it while its raw rows record `first_answer_ms`.
+`metrics.observed_concurrency` records `in_flight_peak`, the most requests the client had open at once, and, over completed requests that streamed at least two chunks, `streamed_request_count`, `streamed_in_flight_peak`, `streaming_peak`, and the time-weighted `streaming_mean` of responses streaming at once; the streamed fields are null for non-streaming runs.
+`report claim-audit` recomputes both blocks from the raw rows when a summary contains them, and blocks a summary that drops the first-answer block while its raw rows record `first_answer_ms`.
 `metrics.goodput` is `null` unless the run declared an SLO; otherwise it records the declared `slo`, `good_request_count`, `attainment`, `good_requests_per_second`, and `good_output_tokens_per_second`, and the declared thresholds also appear as `metadata.slo`.
 
 ## `repeats_summary.json`
