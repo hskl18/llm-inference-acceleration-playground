@@ -97,7 +97,7 @@ def render_summary_markdown(summary: dict[str, Any]) -> str:
         f"| TTFT p50 | {ttft.get('p50', 0.0):.3f} ms |",
         f"| TTFT p95 | {ttft.get('p95', 0.0):.3f} ms |",
         f"| TTFT p99 | {ttft.get('p99', 0.0):.3f} ms |",
-        f"| Requests with answer text | {_optional_count(first_answer, 'sample_count')} of {metrics.get('completed_count', 0)} |",
+        f"| Requests with answer text | {_optional_count(first_answer, 'sample_count', '{} of ' + str(metrics.get('completed_count', 0)))} |",
         f"| First answer p50 | {_optional_ms(first_answer, 'p50')} |",
         f"| First answer p95 | {_optional_ms(first_answer, 'p95')} |",
         f"| TPOT p50 | {tpot.get('p50', 0.0):.3f} ms |",

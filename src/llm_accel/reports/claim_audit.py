@@ -601,8 +601,12 @@ def _validate_recomputed_metrics(
         ("inter_token_latency_ms", "max"),
     ]
     # Summaries written before these metrics existed lack them, so they are checked only when present.
+    # Rows that record the field come from a run that wrote the block, so dropping it is tampering.
+    new_format = any("first_answer_ms" in row for row in rows)
     if isinstance(_nested(metrics, ("first_answer_ms",)), dict):
         paths.extend(("first_answer_ms", key) for key in ("sample_count", "mean", "p50", "p95", "p99"))
+    elif new_format:
+        blockers.append("summary metrics.first_answer_ms is missing but raw requests record first_answer_ms")
     if isinstance(_nested(recomputed, ("goodput",)), dict):
         paths.extend(
             [

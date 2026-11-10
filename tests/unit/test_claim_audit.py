@@ -411,6 +411,16 @@ def test_claim_audit_recomputes_first_answer_from_raw_rows(tmp_path) -> None:
     assert "summary metric first_answer_ms.p50 does not match raw requests" in blockers
 
 
+def test_claim_audit_blocks_a_summary_that_drops_the_first_answer_block(tmp_path) -> None:
+    summary = _mock_run(tmp_path)
+    del summary["metrics"]["first_answer_ms"]
+    (tmp_path / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+
+    blockers = audit_hardware_claim(tmp_path)["blockers"]
+
+    assert "summary metrics.first_answer_ms is missing but raw requests record first_answer_ms" in blockers
+
+
 def test_claim_audit_accepts_summaries_and_rows_written_before_the_new_metrics(tmp_path) -> None:
     summary = _mock_run(tmp_path)
     del summary["metrics"]["first_answer_ms"]
