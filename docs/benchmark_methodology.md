@@ -263,6 +263,17 @@ llm-accel report ranking-audit --matrix-dir results/runs/optimization-matrix
 `report generate` regenerates `summary.md` and `plots/latency.svg` from existing `summary.json` and `raw_requests.jsonl` without rerunning inference.
 The validator checks manifest artifacts, schema version, required summary fields, aggregate run counts, throughput summaries, comparison reports, evaluation reports, vLLM validation reports, vLLM runbooks, quantization comparisons, and speculative-decoding artifacts.
 
+## Regression Checks
+
+`report regression` answers one question about a deployment change, such as an engine upgrade: did the candidate get worse than the baseline by more than a stated threshold?
+Both groups must match in every comparison invariant except the fields named with `--vary`.
+Varying an environment field such as `backend_version` recomputes the environment fingerprint without it, and the workload fingerprint may differ per repetition because each repetition can draw fresh prompts.
+For each metric the check builds a 95% Welch interval on the difference of the repetition means.
+Rates such as goodput attainment and error rate use percentage points; every other metric uses percent of the baseline mean.
+A metric regressed when the whole interval is worse than the threshold, improved when the whole interval is better by more than it, and showed no material change when the whole interval lies inside it.
+Anything else is inconclusive, and each group needs at least three repetitions for an interval.
+The command exits 1 when a metric regressed or the groups are not comparable, so it can gate CI.
+
 ## Comparisons and Ranking Audit
 
 `llm-accel report compare` emits structured blockers, invariant strata, per-profile valid-repetition aggregates, `comparable`, and `ranking_allowed`.

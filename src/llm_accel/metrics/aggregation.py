@@ -14,11 +14,23 @@ _T_95 = {
     16: 2.120, 17: 2.110, 18: 2.101, 19: 2.093, 20: 2.086, 21: 2.080, 22: 2.074,
     23: 2.069, 24: 2.064, 25: 2.060, 26: 2.056, 27: 2.052, 28: 2.048, 29: 2.045, 30: 2.042,
 }
+# Sparse rows above 30; a df between rows uses the row below it, which widens the interval.
+_T_95_SPARSE = ((120, 1.980), (60, 2.000), (40, 2.021))
 _T_95_LARGE_SAMPLE = 1.960
 # One client process saturating a core means the load generator, not the server, sets the pace.
 CLIENT_CPU_SATURATION = 0.8
 
 SLO_FIELDS = ("ttft_ms", "tpot_ms", "end_to_end_latency_ms")
+
+
+def t_quantile_95(degrees_of_freedom: float) -> float:
+    """Two-sided 95% Student t quantile; fractional degrees of freedom round down, which widens the interval."""
+    if not math.isfinite(degrees_of_freedom):
+        return _T_95_LARGE_SAMPLE
+    whole = max(int(degrees_of_freedom), 1)
+    if whole in _T_95:
+        return _T_95[whole]
+    return next((value for floor, value in _T_95_SPARSE if whole >= floor), _T_95[30])
 
 
 def percentile(values: list[float], pct: float) -> float:
@@ -51,7 +63,7 @@ def distribution(values: list[float]) -> dict[str, float]:
         sample_stddev = 0.0
     else:
         sample_stddev = stdev(values)
-        quantile = _T_95.get(count - 1, _T_95_LARGE_SAMPLE)
+        quantile = t_quantile_95(count - 1)
         half_width = quantile * sample_stddev / math.sqrt(count)
     return {
         "count": count,

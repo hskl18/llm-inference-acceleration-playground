@@ -59,6 +59,7 @@ See [docs/cli.md](cli.md) for the commands, [docs/benchmark_methodology.md](benc
 - `report claim-audit` for whether one run can support a hardware claim
 - `report ranking-audit` for whether a matrix can support a performance ranking
 - strict and explicitly stratified comparison modes with per-profile aggregates
+- `report regression` verdicts for one deployment change from 95% Welch intervals against a materiality threshold, with a CI exit code
 - a claim-audit warning when the server streamed one response at a time under higher client concurrency
 - endpoint URL redaction through a single helper used by every writer
 - endpoint fingerprints that bind remote evidence without persisting the URL

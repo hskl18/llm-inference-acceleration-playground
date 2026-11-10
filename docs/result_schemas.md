@@ -267,6 +267,18 @@ It also includes structured `blockers`, explicit invariant `strata`, a declared 
 Reports must treat relative throughput as an inspection aid rather than a ranking when runs are too small, have failures, have fewer than three valid repetitions per profile, lack schema `0.2` evidence, or differ in model, tokenizer, prompt, schedule, client, quality-gate, environment, request-shape, or code invariants.
 Quantization, caching, prefill, speculative decoding, and batching settings are treatment dimensions rather than automatic incompatibilities.
 
+`report regression` compares a baseline group and a candidate group of repeated summaries and writes:
+
+```text
+manifest.json
+regression.json
+regression.md
+```
+
+`regression.json` records the overall `verdict`, `threshold_percent`, `rate_threshold_points`, `varied_fields`, each group's `summaries` and `varied_values`, `blockers`, `warnings`, `regressed_metrics`, and one `metrics` row per repeated metric plus `error_rate`.
+Each row holds the group means, `change` and `change_ci95` in percent of the baseline (percentage points for rates), `worsening_ci95`, and a `verdict` of `regressed`, `improved`, `no_material_change`, `inconclusive`, `insufficient_repetitions`, `missing`, or `undefined`.
+The overall verdict is `not_comparable` when a blocker applies, otherwise the first of `regressed`, `insufficient_repetitions`, `inconclusive`, and `improved` that any row reached, and `no_material_change` when none did.
+
 Repeated-run comparisons include `profile_aggregates` with repetition count plus mean, standard deviation, minimum, maximum, and a 95% confidence interval for throughput and p95 latency for each optimization profile.
 Relative aggregate values use the declared baseline profile rather than the first input path.
 
