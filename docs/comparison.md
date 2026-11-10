@@ -15,6 +15,7 @@ That leads to work the load generators do not do:
 - **Workload identity is recorded.** Every run stores a prompt-set fingerprint, the distinct prompt count, and a shared-prefix estimate, and warns when the measured prompts repeat, because a repeating workload against a caching server measures the cache.
 - **The client is treated as a suspect.** Every run publishes the load generator's own CPU cost and its queue delay, so "the server was slow" can be distinguished from "our benchmark could not keep up".
   The raw offsets also show how many responses the server actually streamed at once, so offered concurrency that only queued is visible.
+- **A deployment change gets a verdict, not two numbers.** `report regression` compares repeated runs before and after one change, such as an engine upgrade, and calls each metric regressed, improved, unchanged within a stated threshold, or inconclusive from a 95% interval, so run-to-run noise is not read as a regression.
 
 The honest summary: those tools are better at generating load, this one is stricter about what the resulting number is allowed to claim.
 It is also younger.

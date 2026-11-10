@@ -21,6 +21,7 @@ from llm_accel.kv_cache.presets import list_kv_cache_presets
 from llm_accel.metrics.memory import sample_gpu_memory
 from llm_accel.quantization.comparison import compare_quantization_modes
 from llm_accel.reports.comparison import compare_run_summaries
+from llm_accel.reports.regression import compare_regression
 from llm_accel.reports.claim_audit import audit_hardware_claim
 from llm_accel.reports.markdown import write_summary_markdown
 from llm_accel.reports.regenerate import regenerate_run_report
@@ -149,6 +150,26 @@ def build_parser() -> argparse.ArgumentParser:
     compare_report.add_argument("--baseline-profile", default="baseline")
     compare_report.add_argument("--mode", choices=["strict", "stratified"], default="strict")
     compare_report.set_defaults(func=cmd_report_compare)
+    regression_report = report_sub.add_parser(
+        "regression",
+        help="Decide whether one deployment change regressed repeated runs",
+    )
+    regression_report.add_argument(
+        "--baseline", action="append", required=True, help="Baseline summary.json; repeat once per repetition"
+    )
+    regression_report.add_argument(
+        "--candidate", action="append", required=True, help="Candidate summary.json; repeat once per repetition"
+    )
+    regression_report.add_argument(
+        "--vary",
+        action="append",
+        default=[],
+        help="Metadata field the change is meant to alter, such as backend_version; repeatable",
+    )
+    regression_report.add_argument("--threshold-percent", type=float, default=10.0)
+    regression_report.add_argument("--rate-threshold-points", type=float, default=5.0)
+    regression_report.add_argument("--output-dir", required=True)
+    regression_report.set_defaults(func=cmd_report_regression)
     repeats_report = report_sub.add_parser(
         "repeats",
         help="Aggregate repetitions that already exist under one directory",
@@ -538,6 +559,31 @@ def cmd_report_compare(args: argparse.Namespace) -> int:
     )
     print(json.dumps({"output_dir": args.output_dir, "summary_count": result["summary_count"]}, indent=2, sort_keys=True))
     return 0
+
+
+def cmd_report_regression(args: argparse.Namespace) -> int:
+    result = compare_regression(
+        args.baseline,
+        args.candidate,
+        args.output_dir,
+        vary=args.vary,
+        threshold_percent=args.threshold_percent,
+        rate_threshold_points=args.rate_threshold_points,
+    )
+    print(
+        json.dumps(
+            {
+                "output_dir": args.output_dir,
+                "verdict": result["verdict"],
+                "regressed_metrics": result["regressed_metrics"],
+                "blockers": result["blockers"],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    # A CI gate fails on a regression and on runs that cannot be compared at all.
+    return 1 if result["verdict"] in {"regressed", "not_comparable"} else 0
 
 
 def cmd_report_repeats(args: argparse.Namespace) -> int:

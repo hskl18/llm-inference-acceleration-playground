@@ -160,6 +160,24 @@ Relative throughput is computed from the declared baseline aggregate rather than
 The claim audit intentionally rejects a mock smoke run because it is not hardware evidence.
 The ranking audit also rejects the mock matrix, closed-loop coordinated-omission risk, client saturation, missing repetitions, missing quality deltas, and any corrupted source evidence.
 
+To check one deployment change, such as an engine upgrade, compare repeated runs before and after it:
+
+```bash
+llm-accel report regression \
+  --baseline results/runs/before/repeat-01/summary.json \
+  --baseline results/runs/before/repeat-02/summary.json \
+  --baseline results/runs/before/repeat-03/summary.json \
+  --candidate results/runs/after/repeat-01/summary.json \
+  --candidate results/runs/after/repeat-02/summary.json \
+  --candidate results/runs/after/repeat-03/summary.json \
+  --vary backend_version \
+  --output-dir results/runs/regression
+```
+
+Every comparison invariant must match except the fields named with `--vary`.
+Each metric gets a verdict from a 95% interval against `--threshold-percent` (default 10) or, for rates, `--rate-threshold-points` (default 5).
+The command exits 1 when a metric regressed or the runs are not comparable.
+
 ## KV cache
 
 ```bash
