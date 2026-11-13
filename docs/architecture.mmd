@@ -1,0 +1,10 @@
+flowchart LR
+  CLI["llm-accel bench"] --> Workload["Workload<br/>prompts, request schedule,<br/>concurrency, SLO"]
+  Workload --> Driver["Load driver<br/>closed or open loop,<br/>repeats"]
+  Driver -->|"streaming requests"| Endpoint["OpenAI-compatible endpoint<br/>vLLM, Ollama, mock://local"]
+  Endpoint -->|"tokens as they arrive"| Driver
+  Driver --> Rows[("Per-request rows<br/>raw_requests.jsonl")]
+  Rows --> Metrics["Metrics<br/>TTFT, ITL, TPOT,<br/>throughput, goodput"]
+  Metrics --> Summary["summary.json,<br/>report and plots"]
+  Rows -->|"recompute every metric"| Audit["report claim-audit<br/>blocks a summary that disagrees<br/>or is not hardware evidence"]
+  Summary --> Audit
