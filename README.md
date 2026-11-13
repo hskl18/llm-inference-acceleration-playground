@@ -44,7 +44,7 @@ Every per-run latency, throughput, and goodput metric comes from the per-request
 ## How this differs from the established tools
 
 `vllm bench serve`, GuideLLM, and GenAI-Perf are better at generating load.
-This one is stricter about what the resulting number is allowed to claim: it audits its own output, recomputes each run's published metrics from raw rows, and gates comparisons on invariants.
+This one is stricter about what the resulting number is allowed to claim: it audits its own output, recomputes each run's latency, throughput, and goodput metrics from raw rows, and gates comparisons on invariants.
 See the [full comparison](https://github.com/hskl18/llm-inference-acceleration-playground/blob/main/docs/comparison.md).
 
 ## Install
