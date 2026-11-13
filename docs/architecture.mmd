@@ -1,10 +1,11 @@
 flowchart LR
-  CLI["llm-accel bench"] --> Workload["Workload<br/>prompts, request schedule,<br/>concurrency, SLO"]
+  CLI["llm-accel bench"] --> Workload["Workload<br/>prompts, request schedule,<br/>concurrency"]
   Workload --> Driver["Load driver<br/>closed or open loop,<br/>repeats"]
-  Driver -->|"streaming requests"| Endpoint["OpenAI-compatible endpoint<br/>vLLM, Ollama, mock://local"]
+  Driver -->|"streaming requests"| Endpoint["OpenAI-compatible endpoint<br/>vLLM or Ollama;<br/>mock://local runs in-process"]
   Endpoint -->|"chunks as they arrive"| Driver
   Driver --> Rows[("Per-request rows<br/>raw_requests.jsonl")]
-  Rows --> Metrics["Metrics<br/>TTFT, chunk gaps (ITL),<br/>TPOT, throughput, goodput"]
+  Rows --> Metrics["Metrics<br/>TTFT, chunk gaps (ITL), TPOT,<br/>throughput, goodput<br/>against the declared SLO"]
   Metrics --> Summary["summary.json,<br/>report and plots"]
   Rows -->|"recompute per-run metrics"| Audit["report claim-audit<br/>blocks a summary that disagrees<br/>or is not hardware evidence"]
   Summary --> Audit
+%% Edit this file, then render architecture-light.svg and architecture-dark.svg from it again.
