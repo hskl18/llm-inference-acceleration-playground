@@ -3,7 +3,7 @@
 Benchmark an LLM serving endpoint, then prove the number is worth believing.
 
 The tool drives load at any OpenAI-compatible endpoint and records TTFT, inter-token latency, TPOT, throughput, and goodput against a declared SLO.
-What it adds beyond that is an audit trail: every published metric is recomputable from the committed per-request rows, and the same tool refuses to call a run a hardware claim when the evidence does not support one.
+What it adds beyond that is an audit trail: every published latency, throughput, and goodput number is recomputable from the committed per-request rows, and the same tool refuses to call a run a hardware claim when the evidence does not support one.
 
 **Status: alpha.** There is one published real result and no GPU measurements yet, and CLI flags and result schemas may change before 1.0.
 
@@ -31,10 +31,20 @@ Full numbers, method, confounds, and limitations: [results/published/2026-09-16-
 This is a local Apple Silicon Ollama measurement.
 It is not a vLLM result and not a GPU result, and the repository's own claim audit rejects it as hardware evidence with 15 blockers, which is the correct outcome.
 
+## Architecture
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/hskl18/llm-inference-acceleration-playground/main/docs/architecture-dark.svg">
+  <img alt="llm-accel bench turns a workload (prompts, request schedule, concurrency) into load from a closed- or open-loop driver against an OpenAI-compatible endpoint such as vLLM or Ollama; mock://local runs in-process. Streamed chunks become per-request rows in raw_requests.jsonl, which feed the metrics (TTFT, gaps between chunks reported as ITL, TPOT, throughput, and goodput against the declared SLO) and the summary, report, and plots. report claim-audit recomputes the per-run metrics from the rows and blocks a summary that disagrees or a run that is not hardware evidence." src="https://raw.githubusercontent.com/hskl18/llm-inference-acceleration-playground/main/docs/architecture-light.svg">
+</picture>
+
+Every per-run latency, throughput, and goodput metric comes from the per-request rows in `raw_requests.jsonl`.
+`report claim-audit` recomputes each one from those rows, blocks a summary that disagrees, and decides whether the run may stand as a hardware result.
+
 ## How this differs from the established tools
 
 `vllm bench serve`, GuideLLM, and GenAI-Perf are better at generating load.
-This one is stricter about what the resulting number is allowed to claim: it audits its own output, recomputes published metrics from raw rows, and gates comparisons on invariants.
+This one is stricter about what the resulting number is allowed to claim: it audits its own output, recomputes each run's latency, throughput, and goodput metrics from raw rows, and gates comparisons on invariants.
 See the [full comparison](https://github.com/hskl18/llm-inference-acceleration-playground/blob/main/docs/comparison.md).
 
 ## Install
