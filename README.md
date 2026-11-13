@@ -31,7 +31,7 @@ Full numbers, method, confounds, and limitations: [results/published/2026-09-16-
 This is a local Apple Silicon Ollama measurement.
 It is not a vLLM result and not a GPU result, and the repository's own claim audit rejects it as hardware evidence with 15 blockers, which is the correct outcome.
 
-## How it works
+## Architecture
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/hskl18/llm-inference-acceleration-playground/main/docs/architecture-dark.svg">
